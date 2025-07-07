@@ -1,0 +1,54 @@
+{
+  "builder_name": "csv",
+  "citation": "",
+  "config_name": "default",
+  "dataset_name": "bitext-customer-support-llm-chatbot-training-dataset",
+  "dataset_size": 19526505,
+  "description": "",
+  "download_checksums": {
+    "hf://datasets/bitext/Bitext-customer-support-llm-chatbot-training-dataset@430d1a89bd93bd1fa23c16f29dd53e73f0087443/Bitext_Sample_Customer_Support_Training_Dataset_27K_responses-v11.csv": {
+      "num_bytes": 19202474,
+      "checksum": null
+    }
+  },
+  "download_size": 19202474,
+  "features": {
+    "flags": {
+      "dtype": "string",
+      "_type": "Value"
+    },
+    "instruction": {
+      "dtype": "string",
+      "_type": "Value"
+    },
+    "category": {
+      "dtype": "string",
+      "_type": "Value"
+    },
+    "intent": {
+      "dtype": "string",
+      "_type": "Value"
+    },
+    "response": {
+      "dtype": "string",
+      "_type": "Value"
+    }
+  },
+  "homepage": "",
+  "license": "",
+  "size_in_bytes": 38728979,
+  "splits": {
+    "train": {
+      "name": "train",
+      "num_bytes": 19526505,
+      "num_examples": 26872,
+      "dataset_name": "bitext-customer-support-llm-chatbot-training-dataset"
+    }
+  },
+  "version": {
+    "version_str": "0.0.0",
+    "major": 0,
+    "minor": 0,
+    "patch": 0
+  }
+}

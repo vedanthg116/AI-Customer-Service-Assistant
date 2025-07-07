@@ -1,0 +1,115 @@
+/* client/src/App.css */
+
+/* ... (previous styles) ... */
+
+/* General chat message styling */
+.chat-message {
+  margin-bottom: 8px;
+  padding: 10px 15px; /* Slightly more padding */
+  border-radius: 18px; /* More rounded corners */
+  max-width: 75%; /* Slightly narrower messages */
+  font-size: 0.95em;
+  line-height: 1.4;
+  word-wrap: break-word; /* Ensure long words wrap */
+  box-shadow: 0 1px 2px rgba(0,0,0,0.1); /* Subtle shadow for message bubbles */
+}
+
+/* Customer's messages (sent from the customer's perspective) */
+.chat-message.customer {
+  background-color: #dcf8c6; /* A WhatsApp-like green */
+  color: #333;
+  align-self: flex-end; /* Align to the right in flex column */
+  margin-left: auto; /* Push to right */
+}
+
+/* Agent's messages (for agent dashboard) / Bot's messages (for customer chat) */
+.chat-message.agent, .chat-message.bot { /* Added .bot here */
+  background-color: #ffffff; /* White background */
+  color: #333;
+  align-self: flex-start; /* Align to the left in flex column */
+  margin-right: auto; /* Push to left */
+  border: 1px solid #e0e0e0; /* Subtle border */
+}
+
+.chat-message small {
+  display: block; /* Timestamp on new line */
+  font-size: 0.75em;
+  color: #666;
+  margin-top: 4px;
+}
+
+/* Ensure chat messages within their container are properly laid out */
+.chat-messages {
+    display: flex;
+    flex-direction: column;
+    gap: 10px; /* Space between message bubbles */
+    padding: 5px; /* Little padding inside the chat box */
+}
+
+/* Ensure the chat-box itself scrolls properly and has a clear height */
+.chat-box {
+  flex-grow: 1;
+  overflow-y: auto;
+  border: 1px solid #eee;
+  border-radius: 8px; /* Consistent rounded corners */
+  padding: 10px;
+  margin-bottom: 10px;
+  background-color: #fcfcfc; /* Slightly lighter background for chat area */
+  display: flex; /* Make it a flex container */
+  flex-direction: column; /* Stack messages vertically */
+}
+
+
+/* ... (rest of your existing CSS) ... *//* client/src/App.css */
+
+/* ... (existing styles like #root, body, .container, .panel, .chat-box, etc.) ... */
+
+/* New: Styles for the Agent Dashboard's internal two-column layout */
+.agent-dashboard-content {
+  display: flex;
+  gap: 20px; /* Space between the two columns */
+  flex-grow: 1; /* Allow content to grow */
+  min-height: 100%; /* Ensure it fills parent height */
+}
+
+.agent-chat-column {
+  flex: 1; /* Takes equal space */
+  display: flex;
+  flex-direction: column;
+}
+
+.ai-suggestions-column {
+  flex: 1; /* Takes equal space */
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto; /* Make suggestions scrollable if they get too long */
+  padding-left: 10px; /* Add some padding from the separator */
+  border-left: 1px solid #eee; /* Visual separator */
+}
+
+/* Adjust .chat-box within agent-chat-column to fill space */
+.agent-chat-column .chat-box {
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column; /* Ensure messages stack vertically */
+  justify-content: flex-end; /* Stick new messages to bottom */
+}
+
+/* Ensure chat messages align correctly in their respective columns */
+.chat-messages .chat-message.customer {
+  align-self: flex-start;
+  margin-right: auto; /* Push to left */
+}
+
+.chat-messages .chat-message.agent {
+  align-self: flex-end;
+  margin-left: auto; /* Push to right */
+}
+
+/* Adjust the .ai-suggestions for its new column context if needed */
+.ai-suggestions {
+  padding-top: 0; /* Remove top padding if desired as it's now in a column */
+}
+
+
+/* ... (rest of your existing CSS) ... */

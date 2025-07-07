@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+*.env  # IMPORTANT: This ignores your .env files (API keys, DB credentials)
+.pytest_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+*.sqlite3
+*.db # For SQLite database files, like sql_app.db
+*.log
+.DS_Store # macOS specific
+
+# Node.js / React
+node_modules/
+build/
+dist/
+.parcel-cache/
+.env.local # React's local environment files
+.env.development.local
+.env.test.local
+.env.production.local
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnp/
+.pnp.js
+
+# Google Cloud Vision API Key (if you downloaded it directly into server/)
+# If your key is named 'my-service-account-key.json', add:
+# my-service-account-key.json
+
+# IDE specific files
+.idea/ # PyCharm/IntelliJ
+.vscode/ # VS Code (if you have user-specific settings you don't want to share)
+*.swp
+*~

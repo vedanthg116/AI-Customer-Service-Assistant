@@ -86,8 +86,7 @@ source venv/bin/activate # On Windows: .\venv\Scripts\activate
 
 b. Install Python Dependencies
 
-pip install -r requirements.txt
-# If requirements.txt is missing, you'll need to create it or install manually:
+
 # pip install fastapi uvicorn sqlalchemy aiosqlite python-dotenv google-generativeai easyocr python-multipart
 
 c. Configure Environment Variables

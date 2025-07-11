@@ -1,44 +1,46 @@
 # server/api/routers/websocket_router.py
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException, status
 from utils.connection_manager import manager
+from typing import Optional
+from uuid import UUID # Import UUID
 
 router = APIRouter()
 
-@router.websocket("/ws/agent")
-async def websocket_agent_endpoint(websocket: WebSocket):
-    """
-    Manages WebSocket connections for agent dashboards.
-    Agents connect to this endpoint to receive real-time updates.
-    """
-    await manager.connect(websocket, "agent")
+# WebSocket endpoint for customers (NO authentication required for this demo)
+@router.websocket("/ws/customer/{customer_id}") # NEW: Path parameter for customer_id
+async def websocket_customer_endpoint(websocket: WebSocket, customer_id: UUID): # Receive customer_id
+    # The manager.connect() call handles the websocket.accept() internally
+    await manager.connect(websocket, "customer", customer_id) # Pass customer_id
+    
     try:
-        # The agent UI primarily receives messages, so this loop just keeps the connection open.
-        # It can also receive messages from the agent if bidirectional communication is needed later.
         while True:
-            # You could process messages sent from the agent UI here if needed, e.g., heartbeats.
-            await websocket.receive_text()
+            data: Optional[str] = await websocket.receive_text()
+            if data is None:
+                break
+            print(f"Backend: Customer WebSocket received data (ignored): {data}")
     except WebSocketDisconnect:
-        print(f"Agent disconnected: {websocket.client}")
-        manager.disconnect(websocket, "agent")
+        manager.disconnect(websocket, "customer", customer_id) # Pass customer_id
+        print("Backend: Customer WebSocket disconnected.")
     except Exception as e:
-        print(f"WebSocket error for agent {websocket.client}: {e}")
-        manager.disconnect(websocket, "agent")
+        print(f"Backend: Customer WebSocket error during communication for {customer_id}: {e}")
+        manager.disconnect(websocket, "customer", customer_id) # Pass customer_id
 
-@router.websocket("/ws/customer")
-async def websocket_customer_endpoint(websocket: WebSocket):
-    """
-    Manages WebSocket connections for customer chat.
-    Customers connect to this endpoint to receive real-time messages from agents.
-    """
-    await manager.connect(websocket, "customer")
+
+# WebSocket endpoint for agents (NO authentication required for this demo)
+@router.websocket("/ws/agent/{agent_id}") # NEW: Path parameter for agent_id
+async def websocket_agent_endpoint(websocket: WebSocket, agent_id: UUID): # Receive agent_id
+    # The manager.connect() call handles the websocket.accept() internally
+    await manager.connect(websocket, "agent", agent_id) # Pass agent_id
+
     try:
         while True:
-            # Customer UI might send messages (e.g., heartbeats or initial connect message)
-            # For this demo, customer messages go via POST /analyze-message for analysis
-            await websocket.receive_text() # Keep connection alive
+            data: Optional[str] = await websocket.receive_text()
+            if data is None:
+                break
+            print(f"Backend: Agent WebSocket received data (ignored): {data}")
     except WebSocketDisconnect:
-        print(f"Customer disconnected: {websocket.client}")
-        manager.disconnect(websocket, "customer")
+        manager.disconnect(websocket, "agent", agent_id) # Pass agent_id
+        print("Backend: Agent WebSocket disconnected.")
     except Exception as e:
-        print(f"WebSocket error for customer {websocket.client}: {e}")
-        manager.disconnect(websocket, "customer")
+        print(f"Backend: Agent WebSocket error during communication for {agent_id}: {e}")
+        manager.disconnect(websocket, "agent", agent_id) # Pass agent_id

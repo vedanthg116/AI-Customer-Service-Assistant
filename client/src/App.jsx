@@ -1,70 +1,45 @@
 // client/src/App.jsx
 import React from 'react';
-import { BrowserRouter, Routes, Route, Link } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom';
 import CustomerChat from './components/CustomerChat';
 import AgentDashboard from './components/AgentDashboard';
-import './App.css'; // Import the main CSS
+import { AuthProvider, useAuth } from './context/AuthContext'; // Keep AuthProvider for API_BASE_URL
 
-// This component will be displayed when no specific route matches
-const NotFound = () => (
-  <div style={{ padding: '20px', textAlign: 'center' }}>
-    <h2>404 - Page Not Found</h2>
-    <p>The page you are looking for does not exist.</p>
-    <Link to="/">Go to Home</Link>
-  </div>
-);
+import './App.css'; // Ensure App.css is imported for styling
 
-// This is a simple Home component that will guide the user to the demo pages
+// Home component (simplified, no login/register links)
 const Home = () => {
   return (
-    <div style={{ padding: '20px', textAlign: 'center' }}>
-      <h1>AI Customer Service Assistant Demo</h1>
-      <p>Please select a demo view:</p>
-      <div style={{ display: 'flex', justifyContent: 'center', gap: '20px', marginTop: '30px' }}>
-        <Link to="/customer" style={{ padding: '15px 30px', backgroundColor: '#007bff', color: 'white', textDecoration: 'none', borderRadius: '8px', fontSize: '1.2em' }}>
-          Customer View
-        </Link>
-        <Link to="/agent" style={{ padding: '15px 30px', backgroundColor: '#28a745', color: 'white', textDecoration: 'none', borderRadius: '8px', fontSize: '1.2em' }}>
-          Agent View
-        </Link>
+    <div className="auth-container"> {/* Re-using auth-container for centering */}
+      <div className="auth-card" style={{ textAlign: 'center' }}>
+        <h2>Welcome to the Chat Support Demo</h2>
+        <p>Choose your role to begin:</p>
+        <div style={{ marginTop: '20px' }}>
+          <Link to="/customer" className="home-button customer-button">
+            Start Customer Chat
+          </Link>
+          <Link to="/agent" className="home-button agent-button">
+            Go to Agent Dashboard
+          </Link>
+        </div>
       </div>
     </div>
   );
 };
 
-
+// Main App component
 function App() {
-  // Modified: handleCustomerSendMessage now accepts the full chat history
-  const handleCustomerSendMessage = async (latestMessage, chatHistory) => {
-    try {
-      const response = await fetch('http://127.0.0.1:8000/analyze-message', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        // Send both the latest message and the full history
-        body: JSON.stringify({ text: latestMessage, chat_history: chatHistory }),
-      });
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      const data = await response.json();
-      console.log('Message sent and analyzed by backend:', data);
-    } catch (error) {
-      console.error('Error sending message to backend:', error);
-    }
-  };
-
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<Home />} />
-        {/* Pass handleCustomerSendMessage to CustomerChat */}
-        <Route path="/customer" element={<CustomerChat onSendMessage={handleCustomerSendMessage} />} />
-        <Route path="/agent" element={<AgentDashboard />} />
-        <Route path="*" element={<NotFound />} />
-      </Routes>
-    </BrowserRouter>
+    <AuthProvider> {/* AuthProvider is still needed for API_BASE_URL */}
+      <Router>
+        <Routes>
+          <Route path="/" element={<Home />} />
+          <Route path="/customer" element={<CustomerChat />} />
+          <Route path="/agent" element={<AgentDashboard />} />
+          {/* Removed: /login, /register routes */}
+        </Routes>
+      </Router>
+    </AuthProvider>
   );
 }
 

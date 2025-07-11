@@ -1,115 +1,548 @@
 /* client/src/App.css */
 
-/* ... (previous styles) ... */
+/* General Layout */
+body {
+  font-family: 'Inter', sans-serif;
+  margin: 0;
+  padding: 0;
+  background-color: #f4f7f6;
+  color: #333;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  box-sizing: border-box;
+}
 
-/* General chat message styling */
+#root {
+  width: 100%;
+  max-width: 1200px;
+  padding: 20px;
+  box-sizing: border-box;
+}
+
+h1, h2, h3 {
+  color: #2c3e50;
+  text-align: center;
+  margin-bottom: 20px;
+}
+
+/* Panel Styling (Customer Chat, Agent Dashboard) */
+.panel {
+  background-color: #ffffff;
+  border-radius: 12px;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+  padding: 25px;
+  margin: 20px auto;
+  max-width: 90%; /* Adjusted for better responsiveness */
+  box-sizing: border-box;
+}
+
+/* Chat Box */
+.chat-box {
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  height: 400px;
+  overflow-y: auto;
+  padding: 15px;
+  background-color: #fcfcfc;
+  margin-bottom: 15px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.chat-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
 .chat-message {
-  margin-bottom: 8px;
-  padding: 10px 15px; /* Slightly more padding */
-  border-radius: 18px; /* More rounded corners */
-  max-width: 75%; /* Slightly narrower messages */
+  padding: 10px 15px;
+  border-radius: 10px;
+  max-width: 80%;
+  word-wrap: break-word;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.chat-message p {
+  margin: 0;
   font-size: 0.95em;
-  line-height: 1.4;
-  word-wrap: break-word; /* Ensure long words wrap */
-  box-shadow: 0 1px 2px rgba(0,0,0,0.1); /* Subtle shadow for message bubbles */
-}
-
-/* Customer's messages (sent from the customer's perspective) */
-.chat-message.customer {
-  background-color: #dcf8c6; /* A WhatsApp-like green */
-  color: #333;
-  align-self: flex-end; /* Align to the right in flex column */
-  margin-left: auto; /* Push to right */
-}
-
-/* Agent's messages (for agent dashboard) / Bot's messages (for customer chat) */
-.chat-message.agent, .chat-message.bot { /* Added .bot here */
-  background-color: #ffffff; /* White background */
-  color: #333;
-  align-self: flex-start; /* Align to the left in flex column */
-  margin-right: auto; /* Push to left */
-  border: 1px solid #e0e0e0; /* Subtle border */
 }
 
 .chat-message small {
-  display: block; /* Timestamp on new line */
+  display: block;
   font-size: 0.75em;
-  color: #666;
-  margin-top: 4px;
+  color: #777;
+  margin-top: 5px;
 }
 
-/* Ensure chat messages within their container are properly laid out */
-.chat-messages {
-    display: flex;
-    flex-direction: column;
-    gap: 10px; /* Space between message bubbles */
-    padding: 5px; /* Little padding inside the chat box */
+.chat-message.customer {
+  align-self: flex-end;
+  background-color: #dcf8c6;
+  color: #333;
+  border-bottom-right-radius: 2px;
 }
 
-/* Ensure the chat-box itself scrolls properly and has a clear height */
-.chat-box {
-  flex-grow: 1;
-  overflow-y: auto;
-  border: 1px solid #eee;
-  border-radius: 8px; /* Consistent rounded corners */
-  padding: 10px;
-  margin-bottom: 10px;
-  background-color: #fcfcfc; /* Slightly lighter background for chat area */
-  display: flex; /* Make it a flex container */
-  flex-direction: column; /* Stack messages vertically */
+.chat-message.agent {
+  align-self: flex-start;
+  background-color: #e6e6e6;
+  color: #333;
+  border-bottom-left-radius: 2px;
 }
 
+.chat-message.agent-error, .chat-message.customer-error {
+  background-color: #ffdddd;
+  color: #a00;
+  border: 1px dashed #f00;
+}
 
-/* ... (rest of your existing CSS) ... *//* client/src/App.css */
+.no-messages-placeholder {
+  text-align: center;
+  color: #888;
+  padding: 20px;
+}
 
-/* ... (existing styles like #root, body, .container, .panel, .chat-box, etc.) ... */
-
-/* New: Styles for the Agent Dashboard's internal two-column layout */
-.agent-dashboard-content {
+/* Message Input Area */
+.message-input-area {
   display: flex;
-  gap: 20px; /* Space between the two columns */
-  flex-grow: 1; /* Allow content to grow */
-  min-height: 100%; /* Ensure it fills parent height */
+  gap: 10px;
 }
 
-.agent-chat-column {
-  flex: 1; /* Takes equal space */
+.message-input-area input[type="text"] {
+  flex-grow: 1;
+  padding: 10px 15px;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  font-size: 1em;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.message-input-area input[type="text"]:focus {
+  border-color: #007bff;
+}
+
+.message-input-area button {
+  padding: 10px 20px;
+  background-color: #007bff;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 1em;
+  transition: background-color 0.2s;
+}
+
+.message-input-area button:hover:not(:disabled) {
+  background-color: #0056b3;
+}
+
+.message-input-area button:disabled {
+  background-color: #cccccc;
+  cursor: not-allowed;
+}
+
+/* Agent Dashboard Specifics - CRITICAL LAYOUT CHANGES */
+.agent-panel {
+    max-width: 1200px; /* Wider for dashboard */
+    padding: 20px;
+}
+
+.agent-content {
+  display: flex;
+  flex-wrap: wrap; /* Allows columns to wrap on smaller screens */
+  gap: 20px; /* Space between columns */
+  justify-content: center; /* Center columns if they don't fill width */
+}
+
+.conversation-list {
+  flex: 0 0 250px; /* Fixed width for list, no shrinking/growing */
+  min-width: 200px; /* Minimum width */
+  background-color: #f8f9fa;
+  border-radius: 10px;
+  padding: 15px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  overflow-y: auto;
+  max-height: 550px; /* Limit height and allow scroll */
+}
+
+.conversation-list h3 {
+  margin-top: 0;
+  text-align: left;
+  color: #34495e;
+  border-bottom: 1px solid #eee;
+  padding-bottom: 10px;
+  margin-bottom: 15px;
+}
+
+.conversation-list ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.conversation-list li {
+  padding: 12px 10px;
+  margin-bottom: 8px;
+  background-color: #ffffff;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color 0.2s, border-color 0.2s;
+  text-align: left;
+  font-size: 0.9em;
+  color: #444;
+}
+
+.conversation-list li:hover {
+  background-color: #f0f0f0;
+  border-color: #b3d4fc;
+}
+
+.conversation-list li.selected {
+  background-color: #e0f2ff; /* Light blue for selected */
+  border-color: #007bff;
+  box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.2);
+  font-weight: bold;
+  color: #0056b3;
+}
+
+.conversation-list .last-message-summary {
+  font-size: 0.8em;
+  color: #777;
+  margin-top: 5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+
+.chat-view {
+  flex: 1; /* Takes remaining space */
+  min-width: 400px; /* Minimum width for chat */
   display: flex;
   flex-direction: column;
+  background-color: #ffffff;
+  border-radius: 10px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  padding: 15px;
 }
+
+.chat-view h3 {
+    text-align: left;
+    margin-top: 0;
+    margin-bottom: 15px;
+    border-bottom: 1px solid #eee;
+    padding-bottom: 10px;
+}
+
 
 .ai-suggestions-column {
-  flex: 1; /* Takes equal space */
+  flex: 0 0 300px; /* Fixed width for suggestions */
+  min-width: 280px;
+  background-color: #f9f9f9;
+  border-radius: 10px;
+  padding: 20px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  overflow-y: auto;
+  max-height: 550px; /* Match conversation list height */
+}
+
+.ai-suggestions-column h3 {
+  margin-top: 0;
+  color: #34495e;
+  text-align: left;
+  border-bottom: 1px solid #eee;
+  padding-bottom: 10px;
+  margin-bottom: 15px;
+}
+
+.suggestion-card {
+  background-color: #ffffff;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 15px;
+  margin-bottom: 15px;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+}
+
+.suggestion-card h4 {
+    margin-top: 0;
+    margin-bottom: 10px;
+    color: #444;
+    font-size: 1.1em;
+}
+
+.suggestion-card p, .suggestion-card ul {
+  font-size: 0.9em;
+  color: #555;
+  margin-bottom: 10px;
+}
+
+.suggestion-card ul {
+  list-style: disc;
+  padding-left: 20px;
+  margin: 0;
+}
+
+.suggestion-card li {
+  margin-bottom: 5px;
+}
+
+.suggestion-card button {
+  margin-top: 10px;
+  padding: 8px 15px;
+  background-color: #28a745;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 0.85em;
+  transition: background-color 0.2s;
+}
+
+.suggestion-card button:hover {
+  background-color: #218838;
+}
+
+/* Sentiment and Confidence Badges */
+.sentiment-positive { color: #28a745; font-weight: bold; }
+.sentiment-negative { color: #dc3545; font-weight: bold; }
+.sentiment-neutral { color: #ffc107; font-weight: bold; }
+.sentiment-unknown { color: #6c757d; font-weight: bold; }
+
+.confidence-high { color: #28a745; font-weight: bold; }
+.confidence-low { color: #dc3545; font-weight: bold; }
+.confidence-unknown { color: #6c757d; font-weight: bold; }
+
+/* Time Metrics */
+.time-metrics {
+  margin-bottom: 20px;
+  padding: 10px;
+  border: 1px solid #eee;
+  border-radius: 8px;
+  background-color: #fdfdfd;
+  font-size: 0.9em;
+}
+.time-metrics p {
+  margin: 5px 0;
+  color: #555;
+}
+.time-metrics span {
+  font-weight: bold;
+  color: #333;
+}
+.time-metrics .warning {
+  color: #ffc107;
+}
+.time-metrics .critical {
+  color: #dc3545;
+}
+
+/* Image Uploads */
+.message-input-area .attach-button {
+    background-color: #f0f0f0;
+    color: #555;
+    border: 1px solid #ccc;
+    padding: 10px 15px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 1.2em;
+    line-height: 1;
+    height: 40px;
+    margin-right: 5px;
+}
+
+.message-input-area .attach-button:hover {
+    background-color: #e0e0e0;
+}
+
+.ocr-text-display {
+    background-color: #f9f9f9;
+    border: 1px dashed #ddd;
+    padding: 10px;
+    border-radius: 8px;
+    margin-top: 10px;
+    font-family: monospace;
+    font-size: 0.9em;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.chat-message img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+
+/* Auth Page Styling */
+.auth-container {
   display: flex;
-  flex-direction: column;
-  overflow-y: auto; /* Make suggestions scrollable if they get too long */
-  padding-left: 10px; /* Add some padding from the separator */
-  border-left: 1px solid #eee; /* Visual separator */
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  background-color: #f4f7f6;
+  padding: 20px;
+  box-sizing: border-box;
 }
 
-/* Adjust .chat-box within agent-chat-column to fill space */
-.agent-chat-column .chat-box {
-  flex-grow: 1;
-  display: flex;
-  flex-direction: column; /* Ensure messages stack vertically */
-  justify-content: flex-end; /* Stick new messages to bottom */
+.auth-card {
+  background-color: #ffffff;
+  border-radius: 12px;
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+  padding: 40px;
+  width: 100%;
+  max-width: 400px;
+  text-align: center;
 }
 
-/* Ensure chat messages align correctly in their respective columns */
-.chat-messages .chat-message.customer {
-  align-self: flex-start;
-  margin-right: auto; /* Push to left */
+.auth-card h2 {
+  color: #2c3e50;
+  margin-bottom: 30px;
+  font-size: 2em;
 }
 
-.chat-messages .chat-message.agent {
-  align-self: flex-end;
-  margin-left: auto; /* Push to right */
+.auth-card .form-group {
+  margin-bottom: 20px;
+  text-align: left;
 }
 
-/* Adjust the .ai-suggestions for its new column context if needed */
-.ai-suggestions {
-  padding-top: 0; /* Remove top padding if desired as it's now in a column */
+.auth-card label {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: bold;
+  color: #555;
 }
 
+.auth-card input[type="email"],
+.auth-card input[type="password"] {
+  width: calc(100% - 22px);
+  padding: 12px 10px;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  font-size: 1em;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
 
-/* ... (rest of your existing CSS) ... */
+.auth-card input[type="email"]:focus,
+.auth-card input[type="password"]:focus {
+  border-color: #007bff;
+  box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.25);
+}
+
+.auth-card button[type="submit"] {
+  width: 100%;
+  padding: 12px 20px;
+  background-color: #007bff;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 1.1em;
+  font-weight: bold;
+  transition: background-color 0.2s, transform 0.1s;
+  margin-top: 10px;
+}
+
+.auth-card button[type="submit"]:hover:not(:disabled) {
+  background-color: #0056b3;
+  transform: translateY(-1px);
+}
+
+.auth-card button[type="submit"]:disabled {
+  background-color: #cccccc;
+  cursor: not-allowed;
+}
+
+.auth-card .error-message {
+  color: #dc3545;
+  font-size: 0.9em;
+  margin-top: -10px;
+  margin-bottom: 15px;
+}
+
+.auth-switch {
+  margin-top: 25px;
+  font-size: 0.9em;
+  color: #666;
+}
+
+.auth-switch a {
+  color: #007bff;
+  text-decoration: none;
+  font-weight: bold;
+}
+
+.auth-switch a:hover {
+  text-decoration: underline;
+}
+
+/* Home Page Button Styling */
+.home-button { /* Replaced .home-buttons-container a, .home-buttons-container button */
+  padding: 15px 30px;
+  border-radius: 8px;
+  font-size: 1.2em;
+  text-decoration: none;
+  color: white;
+  transition: background-color 0.2s, transform 0.1s;
+  border: none;
+  cursor: pointer;
+  display: inline-block; /* Ensure links behave like buttons */
+  margin: 5px; /* Add some margin between buttons */
+}
+
+.home-button:hover {
+  transform: translateY(-2px);
+}
+
+.home-button.customer-button,
+.home-button.login-button {
+  background-color: #007bff;
+}
+
+.home-button.customer-button:hover,
+.home-button.login-button:hover {
+  background-color: #0056b3;
+}
+
+.home-button.agent-button {
+  background-color: #28a745;
+}
+
+.home-button.agent-button:hover {
+  background-color: #218838;
+}
+
+.home-button.register-button {
+  background-color: #6c757d;
+}
+
+.home-button.register-button:hover {
+  background-color: #5a6268;
+}
+
+.home-button.logout-button {
+  background-color: #dc3545;
+}
+
+.home-button.logout-button:hover {
+  background-color: #c82333;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .agent-content {
+    flex-direction: column; /* Stack columns vertically on small screens */
+  }
+
+  .conversation-list,
+  .chat-view,
+  .ai-suggestions-column {
+    flex: 0 0 100%; /* Take full width */
+    max-width: 100%;
+    min-width: unset; /* Remove min-width constraint */
+  }
+}

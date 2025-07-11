@@ -8,7 +8,7 @@ Simplified Customer Onboarding: Customers can start a chat simply by providing a
 
 Real-time Chat: Instant messaging between customers and AI/agents using WebSockets.
 
-AI-Powered Analysis (Google Gemini):
+AI-Powered Analysis (Google Gemini - using this for will use faster llm api later on):
 
 Intent Prediction: Automatically identifies the customer's intent (e.g., "order status", "returns").
 

@@ -1,18 +1,37 @@
 # server/api/schemas.py
 from pydantic import BaseModel
-from typing import List, Optional # Import List and Optional
+from typing import List, Optional
+from datetime import datetime
+from uuid import UUID # Import UUID
 
-# NEW: Pydantic model for a single chat message in the history
+# Schema for a single chat message (used for history and display)
 class ChatMessage(BaseModel):
     text: str
-    sender: str # e.g., "customer", "agent"
-    timestamp: str # ISO formatted string
+    sender: str # "customer" or "agent"
+    timestamp: str # ISO format string
+    image_url: Optional[str] = None # Base64 encoded image or URL
+    ocr_text: Optional[str] = None # Extracted text from text
 
-# Modified: MessageRequest now includes the full chat history
+# Schema for incoming customer message request (now includes customer_id and customer_name)
 class MessageRequest(BaseModel):
-    text: str # The latest message sent by the customer
-    chat_history: List[ChatMessage] # The entire conversation history leading up to this message
+    customer_id: UUID # The UUID for the customer (generated on frontend)
+    customer_name: str # The name provided by the customer
+    text: str
+    chat_history: List[ChatMessage] # Full chat history for context
 
+# Schema for incoming agent message request
 class AgentMessageRequest(BaseModel):
-    agent_id: str = "Agent"
+    conversation_id: UUID
+    agent_id: UUID # UUID for the agent (generated on frontend)
+    agent_name: str # Name provided by the agent
     message: str
+
+# NEW: Schema for assigning/unassigning conversations
+class ConversationAssignmentRequest(BaseModel):
+    conversation_id: UUID
+    agent_id: UUID
+    agent_name: str
+
+# NEW: Schema for unassigning conversations
+class ConversationUnassignmentRequest(BaseModel):
+    conversation_id: UUID

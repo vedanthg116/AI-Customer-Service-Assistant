@@ -1,276 +1,572 @@
 // client/src/components/AgentDashboard.jsx
 import React, { useState, useEffect, useRef } from 'react';
+import { useAuth } from '../context/AuthContext';
+import { v4 as uuidv4 } from 'uuid';
 
 const AgentDashboard = () => {
-  // State for conversation history (customer messages via WS, agent replies local)
-  const [conversation, setConversation] = useState([]);
-  // State for the AI analysis of the LATEST customer message
-  const [latestAnalysis, setLatestAnalysis] = useState(null);
+  const [activeConversations, setActiveConversations] = useState([]);
+  const [selectedConversationId, setSelectedConversationId] = useState(null);
+  const [selectedConversationMessages, setSelectedConversationMessages] = useState([]);
+  const [replyMessage, setReplyMessage] = useState('');
+  const [loadingConversations, setLoadingConversations] = useState(true);
+  const [loadingMessages, setLoadingMessages] = useState(false);
+  const [aiSuggestions, setAiSuggestions] = useState(null);
 
-  // State for agent's input message
-  const [agentMessage, setAgentMessage] = useState('');
+  const [agentId, setAgentId] = useState(null);
+  const [agentName, setAgentName] = useState('');
+  const [agentNameInput, setAgentNameInput] = useState('');
+  const [showAgentNameInput, setShowAgentNameInput] = useState(true);
+  const [filter, setFilter] = useState('all');
 
-  // Time metrics
-  const [convoStartTime, setConvoStartTime] = useState(null); // Timestamp when first message received
-  const [convoDuration, setConvoDuration] = useState('00:00:00');
-  const [timeSinceLastCustomerMessage, setTimeSinceLastCustomerMessage] = useState('00:00:00');
-  const lastCustomerMessageTimestamp = useRef(null); // Ref to hold the timestamp for accurate calculation
-
-  // WebSocket setup for Agent Dashboard
   const ws = useRef(null);
-  const WS_URL = 'ws://127.0.0.1:8000/ws/agent'; // Matches FastAPI WS endpoint for agents
+  const reconnectTimeout = useRef(null);
 
+  const { API_BASE_URL } = useAuth();
+
+  const WS_URL = API_BASE_URL.replace('http', 'ws') + '/ws/agent';
+
+  // Agent ID and Name from local storage
   useEffect(() => {
-    // Establish WebSocket connection
-    ws.current = new WebSocket(WS_URL);
+    const storedAgentId = localStorage.getItem('agent_id');
+    const storedAgentName = localStorage.getItem('agent_name');
 
-    ws.current.onopen = () => {
-      console.log('Agent WebSocket connected.');
-    };
+    if (storedAgentId && storedAgentName) {
+      setAgentId(storedAgentId);
+      setAgentName(storedAgentName);
+      setShowAgentNameInput(false);
+      console.log(`AgentDashboard: Loaded agent: ${storedAgentName} (ID: ${storedAgentId}) from local storage.`);
+    } else {
+      console.log("AgentDashboard: No agent ID/name found in local storage. Prompting for name.");
+      setShowAgentNameInput(true);
+    }
+  }, []);
 
-    ws.current.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      // Listen for both customer messages and agent messages (broadcast back to agent dashboard too)
-      if (data.type === 'customer_message_analysis') {
-        const { original_message, analysis } = data;
+  // WebSocket connection
+  useEffect(() => {
+    const connectWebSocket = () => {
+      if (reconnectTimeout.current) {
+        clearTimeout(reconnectTimeout.current);
+        reconnectTimeout.current = null;
+      }
 
-        // Add original message to conversation history
-        setConversation((prevConv) => [
-          ...prevConv,
-          { text: original_message, sender: 'customer', timestamp: analysis.timestamp }
-        ]);
-
-        // Update latest AI analysis
-        setLatestAnalysis(analysis);
-
-        // Update time metrics
-        if (!convoStartTime) {
-          setConvoStartTime(new Date(analysis.timestamp));
+      if (!agentId) {
+        console.log("AgentDashboard: Agent ID not available for WebSocket. Not connecting.");
+        if (ws.current) {
+          ws.current.close();
+          ws.current = null;
         }
-        lastCustomerMessageTimestamp.current = new Date(analysis.timestamp);
+        return;
+      }
 
-      } else if (data.type === 'agent_chat_message') { // NEW: Handle agent messages broadcast from backend
-        setConversation((prevConv) => [
-          ...prevConv,
-          { text: data.text, sender: 'agent', timestamp: data.timestamp }
-        ]);
+      if (!ws.current || ws.current.readyState === WebSocket.CLOSED || ws.current.readyState === WebSocket.CLOSING) {
+        console.log('AgentDashboard: Attempting to connect Agent WebSocket to:', WS_URL);
+        ws.current = new WebSocket(WS_URL);
+
+        ws.current.onopen = () => {
+          console.log('AgentDashboard: Agent WebSocket connected successfully.');
+        };
+
+        ws.current.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            console.log('AgentDashboard: Received WebSocket data:', data);
+            console.log('AgentDashboard: WebSocket data.analysis:', data.analysis);
+
+            if (data.type === 'customer_message_analysis') {
+              const convId = data.conversation_id;
+              const userId = data.user_id;
+              const userName = data.user_name;
+
+              setActiveConversations((prev) => {
+                const currentConversations = Array.isArray(prev) ? prev : [];
+                const existingConv = currentConversations.find(conv => conv.id === convId);
+                if (existingConv) {
+                  return prev.map(conv =>
+                    conv.id === convId
+                      ? { ...conv, last_message_summary: data.original_message }
+                      : conv
+                  );
+                } else {
+                  return [...currentConversations, {
+                    id: convId,
+                    user_id: userId,
+                    user_name: userName,
+                    start_time: new Date().toISOString(),
+                    status: 'open',
+                    last_message_summary: data.original_message,
+                    assigned_agent_id: null,
+                    assigned_agent_name: null
+                  }];
+                }
+              });
+
+              if (convId === selectedConversationId) {
+                setSelectedConversationMessages((prevMessages) => {
+                  const currentMessages = Array.isArray(prevMessages) ? prevMessages : [];
+                  const newMessages = [
+                    ...currentMessages,
+                    {
+                      text: data.original_message,
+                      sender: 'customer',
+                      timestamp: new Date().toISOString(),
+                      image_url: data.image_url,
+                      ocr_text: data.ocr_text,
+                      analysis: data.analysis
+                    }
+                  ];
+                  console.log('AgentDashboard: Updating selected conversation messages to:', newMessages);
+                  return newMessages;
+                });
+                console.log('AgentDashboard: Setting AI suggestions from WebSocket:', data.analysis?.suggestions);
+                setAiSuggestions(data.analysis?.suggestions || null);
+              }
+
+            } else if (data.type === 'agent_chat_message') {
+                const convId = data.conversation_id;
+                if (convId === selectedConversationId) {
+                    setSelectedConversationMessages((prevMessages) => {
+                      const currentMessages = Array.isArray(prevMessages) ? prevMessages : [];
+                      const newMessages = [
+                          ...currentMessages,
+                          {
+                              text: data.text,
+                              sender: data.sender,
+                              timestamp: data.timestamp,
+                          }
+                      ];
+                      console.log('AgentDashboard: Updating selected conversation messages to:', newMessages);
+                      return newMessages;
+                    });
+                }
+            } else if (data.type === 'conversation_assigned') {
+                setActiveConversations(prev => prev.map(conv =>
+                    conv.id === data.conversation_id
+                        ? { ...conv, assigned_agent_id: data.assigned_agent_id, assigned_agent_name: data.assigned_agent_name }
+                        : conv
+                ));
+                console.log(`AgentDashboard: Conversation ${data.conversation_id} assigned to ${data.assigned_agent_name}`);
+            } else if (data.type === 'conversation_unassigned') {
+                setActiveConversations(prev => prev.map(conv =>
+                    conv.id === data.conversation_id
+                        ? { ...conv, assigned_agent_id: null, assigned_agent_name: null }
+                        : conv
+                ));
+                console.log(`AgentDashboard: Conversation ${data.conversation_id} unassigned from ${data.unassigned_agent_name}`);
+            }
+
+          } catch (error) {
+            console.error("AgentDashboard: Error parsing WebSocket message:", error, "Raw data:", event.data);
+          }
+        };
+
+        ws.current.onclose = (event) => {
+          console.log('AgentDashboard: Agent WebSocket disconnected.', event.code, event.reason);
+          if (event.code !== 1000 && !reconnectTimeout.current) {
+            console.log('AgentDashboard: Attempting to reconnect WebSocket in 3 seconds...');
+            reconnectTimeout.current = setTimeout(connectWebSocket, 3000);
+          }
+        };
+
+        ws.current.onerror = (error) => {
+          console.error('AgentDashboard: Agent WebSocket error:', error);
+        };
       }
     };
 
-    ws.current.onclose = () => {
-      console.log('Agent WebSocket disconnected.');
-      // Optional: Implement reconnect logic here
-    };
+    if (!showAgentNameInput && agentId) {
+      connectWebSocket();
+    }
 
-    ws.current.onerror = (error) => {
-      console.error('Agent WebSocket error:', error);
-    };
-
-    // Cleanup function: Close WebSocket when component unmounts
     return () => {
-      if (ws.current) {
+      if (ws.current && ws.current.readyState === WebSocket.OPEN) {
         ws.current.close();
       }
+      if (reconnectTimeout.current) {
+        clearTimeout(reconnectTimeout.current);
+      }
+      ws.current = null;
+      reconnectTimeout.current = null;
     };
-  }, [convoStartTime]); // Dependency on convoStartTime ensures WS connects once per conversation start
+  }, [agentId, WS_URL, showAgentNameInput]);
 
 
-  // Timer for conversation duration and time since last message
+  const fetchActiveConversations = async () => {
+    setLoadingConversations(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/conversations/active`);
+      if (response.ok) {
+        const data = await response.json();
+        setActiveConversations(Array.isArray(data) ? data : []);
+      } else {
+        console.error('AgentDashboard: Failed to fetch active conversations:', response.statusText);
+        setActiveConversations([]);
+      }
+    } catch (error) {
+      console.error('AgentDashboard: Error fetching active conversations:', error);
+      setActiveConversations([]);
+    } finally {
+      setLoadingConversations(false);
+    }
+  };
+
   useEffect(() => {
-    const interval = setInterval(() => {
-      // Update Conversation Duration
-      if (convoStartTime) {
-        const durationSeconds = Math.floor((new Date() - convoStartTime) / 1000);
-        const hours = String(Math.floor(durationSeconds / 3600)).padStart(2, '0');
-        const minutes = String(Math.floor((durationSeconds % 3600) / 60)).padStart(2, '0');
-        const seconds = String(durationSeconds % 60).padStart(2, '0');
-        setConvoDuration(`${hours}:${minutes}:${seconds}`);
+    if (!showAgentNameInput && agentId) {
+      fetchActiveConversations();
+    }
+  }, [API_BASE_URL, showAgentNameInput, agentId]);
+
+  const selectConversation = async (conversationId) => {
+    setSelectedConversationId(conversationId);
+    setLoadingMessages(true);
+    setAiSuggestions(null);
+    try {
+      const response = await fetch(`${API_BASE_URL}/chat-history/conversation/${conversationId}`);
+      if (response.ok) {
+        const data = await response.json();
+        setSelectedConversationMessages(Array.isArray(data) ? data : []);
+        const lastCustomerMessageWithAnalysis = data.slice().reverse().find(msg => msg.sender === 'customer' && msg.analysis);
+        console.log('AgentDashboard: Found last customer message with analysis:', lastCustomerMessageWithAnalysis);
+        if (lastCustomerMessageWithAnalysis) {
+          console.log('AgentDashboard: Setting AI suggestions from fetched history:', lastCustomerMessageWithAnalysis.analysis.suggestions);
+          setAiSuggestions(lastCustomerMessageWithAnalysis.analysis.suggestions);
+        } else {
+          console.log('AgentDashboard: No analysis found in fetched history for selected conversation.');
+          setAiSuggestions(null);
+        }
+      } else {
+        console.error('AgentDashboard: Failed to fetch conversation history:', response.statusText);
+        setSelectedConversationMessages([]);
       }
+    } catch (error) {
+      console.error('AgentDashboard: Error fetching conversation history:', error);
+      setSelectedConversationMessages([]);
+    } finally {
+      setLoadingMessages(false);
+    }
+  };
 
-      // Update Time Since Last Customer Message
-      if (lastCustomerMessageTimestamp.current) {
-        const timeSinceSeconds = Math.floor((new Date() - lastCustomerMessageTimestamp.current) / 1000);
-        const hours = String(Math.floor(timeSinceSeconds / 3600)).padStart(2, '0');
-        const minutes = String(Math.floor((timeSinceSeconds % 3600) / 60)).padStart(2, '0');
-        const seconds = String(timeSinceSeconds % 60).padStart(2, '0');
-        setTimeSinceLastCustomerMessage(`${hours}:${minutes}:${seconds}`);
-      }
-    }, 1000); // Update every second
-
-    return () => clearInterval(interval); // Clean up interval on unmount
-  }, [convoStartTime]); // Re-run effect if convoStartTime changes (e.g., new conversation)
-
-
-  // Function to handle agent sending a message - NOW SENDS TO BACKEND VIA HTTP POST
-  const handleAgentSend = async () => {
-    if (agentMessage.trim() === '') return;
+  const handleReplySend = async () => {
+    if (replyMessage.trim() === '' || !selectedConversationId) {
+      alert("Please type a message and select a conversation.");
+      return;
+    }
+    if (!agentId || !agentName) {
+      alert("Agent identity not set. Please refresh and enter your name.");
+      return;
+    }
 
     try {
-      const response = await fetch('http://127.0.0.1:8000/send-agent-message', {
+      const response = await fetch(`${API_BASE_URL}/send-agent-message`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ message: agentMessage, agent_id: "Agent123" }), // You can make agent_id dynamic
+        body: JSON.stringify({
+          conversation_id: selectedConversationId,
+          agent_id: agentId,
+          agent_name: agentName,
+          message: replyMessage,
+        }),
       });
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+
+      if (response.ok) {
+        const data = await response.json();
+        console.log('AgentDashboard: Agent message sent:', data);
+        setReplyMessage('');
+
+        setSelectedConversationMessages((prevMessages) => {
+          const currentMessages = Array.isArray(prevMessages) ? prevMessages : [];
+          return [
+            ...currentMessages,
+            {
+                text: replyMessage,
+                sender: 'agent',
+                timestamp: new Date().toISOString(),
+            }
+          ];
+        });
+
+      } else {
+        const errorData = await response.json();
+        console.error('AgentDashboard: Failed to send agent message:', errorData.detail);
+        alert(`Failed to send message: ${errorData.detail}`);
       }
-      const data = await response.json();
-      console.log('Agent message sent to backend:', data);
-      
-      // The message will be broadcast back via WebSocket, so no need to locally add it here.
-      // This ensures the conversation history is consistent with what's broadcast.
-
     } catch (error) {
-      console.error('Error sending agent message to backend:', error);
-      // Fallback: Add locally if sending fails
-      setConversation((prevHistory) => [
-        ...prevHistory,
-        { text: agentMessage + " (Failed to send!)", sender: 'agent-error', timestamp: new Date().toISOString() }
-      ]);
-    }
-    
-    setAgentMessage(''); // Clear the input field after attempting to send
-  };
-
-  const handleKeyPress = (e) => {
-    if (e.key === 'Enter') {
-      handleAgentSend();
+      console.error('AgentDashboard: Network error sending agent message:', error);
+      alert("Network error or server unreachable.");
     }
   };
 
-  const renderSentiment = (sentiment) => {
-    if (!sentiment) return <span className="sentiment-unknown">N/A</span>;
-    const label = String(sentiment.label).toLowerCase(); // Ensure label is string
-    let className = 'sentiment-unknown';
-    if (label === 'positive') className = 'sentiment-positive';
-    else if (label === 'negative') className = 'sentiment-negative';
-    else if (label === 'neutral') className = 'sentiment-neutral';
-    return <span className={className}>{sentiment.label} ({Math.round(sentiment.score * 100)}%)</span>;
-  };
-
-  const renderConfidence = (confidence) => {
-    if (confidence === undefined || confidence === null) return <span className="confidence-unknown">N/A</span>;
-    const className = confidence < 0.6 ? 'confidence-low' : 'confidence-high'; // Adjusted threshold for LLM's 'estimate'
-    return <span className={className}>{Math.round(confidence * 100)}%</span>;
-  };
-
-  const copyToClipboard = (text) => {
-    if (!navigator.clipboard) {
-      alert("Clipboard API not available in this browser/context.");
+  const handleAgentNameSubmit = () => {
+    if (agentNameInput.trim() === '') {
+      alert("Please enter your name to access the dashboard.");
       return;
     }
-    navigator.clipboard.writeText(text)
-      .then(() => alert('Copied to clipboard!'))
-      .catch((err) => console.error('Failed to copy: ', err));
+    const newAgentId = uuidv4();
+    localStorage.setItem('agent_id', newAgentId);
+    localStorage.setItem('agent_name', agentNameInput.trim());
+    setAgentId(newAgentId);
+    setAgentName(agentNameInput.trim());
+    setShowAgentNameInput(false);
+    setLoadingConversations(true);
   };
+
+  // NEW: Function to handle switching agents
+  const handleSwitchAgent = () => {
+    console.log("AgentDashboard: Switching agent...");
+    // Clear local storage for current agent
+    localStorage.removeItem('agent_id');
+    localStorage.removeItem('agent_name');
+
+    // Reset component state to show name input form
+    setAgentId(null);
+    setAgentName('');
+    setAgentNameInput('');
+    setShowAgentNameInput(true);
+
+    // Clear all conversation and chat states for a clean slate
+    setActiveConversations([]);
+    setSelectedConversationId(null);
+    setSelectedConversationMessages([]);
+    setReplyMessage('');
+    setAiSuggestions(null);
+    setLoadingConversations(false); // So the name input shows immediately
+    setLoadingMessages(false);
+
+    // Close existing WebSocket connection if open
+    if (ws.current && ws.current.readyState === WebSocket.OPEN) {
+      ws.current.close();
+      ws.current = null;
+    }
+    // Clear any pending reconnect timeouts
+    if (reconnectTimeout.current) {
+      clearTimeout(reconnectTimeout.current);
+      reconnectTimeout.current = null;
+    }
+  };
+
+
+  const handleClaimConversation = async (convId) => {
+    if (!agentId || !agentName) {
+      alert("Agent identity not set. Please refresh and enter your name.");
+      return;
+    }
+    try {
+      const response = await fetch(`${API_BASE_URL}/assign-conversation`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          conversation_id: convId,
+          agent_id: agentId,
+          agent_name: agentName
+        })
+      });
+      if (!response.ok) {
+        const errorData = await response.json();
+        alert(`Failed to claim conversation: ${errorData.detail}`);
+        console.error('Failed to claim conversation:', errorData);
+      } else {
+        console.log(`Conversation ${convId} claimed successfully.`);
+      }
+    } catch (error) {
+      console.error('Network error claiming conversation:', error);
+      alert("Network error or server unreachable.");
+    }
+  };
+
+  const handleReleaseConversation = async (convId) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/unassign-conversation`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          conversation_id: convId
+        })
+      });
+      if (!response.ok) {
+        const errorData = await response.json();
+        alert(`Failed to release conversation: ${errorData.detail}`);
+        console.error('Failed to release conversation:', errorData);
+      } else {
+        console.log(`Conversation ${convId} released successfully.`);
+      }
+    } catch (error) {
+      console.error('Network error releasing conversation:', error);
+      alert("Network error or server unreachable.");
+    }
+  };
+
+  const filteredConversations = activeConversations.filter(conv => {
+    if (filter === 'unassigned') {
+      return !conv.assigned_agent_id;
+    } else if (filter === 'my_assigned') {
+      return conv.assigned_agent_id === agentId;
+    }
+    return true;
+  });
+
+  if (showAgentNameInput) {
+    return (
+      <div className="panel agent-panel" style={{ textAlign: 'center', padding: '50px' }}>
+        <h2>Agent Dashboard Access</h2>
+        <p>Please enter your name to access the dashboard:</p>
+        <input
+          type="text"
+          value={agentNameInput}
+          onChange={(e) => setAgentNameInput(e.target.value)}
+          placeholder="Your Agent Name"
+          style={{ padding: '10px', fontSize: '1em', width: '80%', maxWidth: '300px', marginBottom: '15px' }}
+          onKeyPress={(e) => e.key === 'Enter' && handleAgentNameSubmit()}
+        />
+        <button onClick={handleAgentNameSubmit} style={{ padding: '10px 20px', fontSize: '1em' }}>Enter Dashboard</button>
+      </div>
+    );
+  }
+
+  if (loadingConversations) {
+    return <div style={{ textAlign: 'center', padding: '50px' }}>Loading conversations...</div>;
+  }
 
   return (
     <div className="panel agent-panel">
-      <h2>Agent Dashboard</h2>
-      <div className="agent-dashboard-content"> {/* Main flex container for agent dashboard content */}
-        <div className="agent-chat-column"> {/* Left column: Conversation */}
-          <h3>Customer Conversation</h3>
-          <div className="chat-box">
-            <div className="chat-messages">
-              {conversation.length === 0 ? (
-                <p>Waiting for customer messages...</p>
-              ) : (
-                conversation.map((msg, index) => (
-                  <div key={index} className={`chat-message ${msg.sender}`}>
-                    <p>{msg.text}</p>
-                    <small>{new Date(msg.timestamp).toLocaleTimeString()}</small>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+        <h2>Agent Dashboard ({agentName})</h2>
+        <button onClick={handleSwitchAgent} className="home-button logout-button">Switch Agent</button> {/* NEW BUTTON */}
+      </div>
+      <div className="agent-content">
+        <div className="conversation-list">
+          <h3>Active Conversations</h3>
+          <div className="filter-buttons">
+            <button onClick={() => setFilter('all')} className={filter === 'all' ? 'active' : ''}>All</button>
+            <button onClick={() => setFilter('unassigned')} className={filter === 'unassigned' ? 'active' : ''}>Unassigned</button>
+            <button onClick={() => setFilter('my_assigned')} className={filter === 'my_assigned' ? 'active' : ''}>My Assigned</button>
+          </div>
+          {filteredConversations.length === 0 ? (
+            <p>No active conversations matching filter.</p>
+          ) : (
+            <ul>
+              {filteredConversations.map((conv) => (
+                <li
+                  key={conv.id}
+                  className={conv.id === selectedConversationId ? 'selected' : ''}
+                  onClick={() => selectConversation(conv.id)}
+                >
+                  <strong>Customer: {conv.user_name || conv.user_id.substring(0, 8)}...</strong>
+                  {conv.assigned_agent_name && (
+                    <span className="assigned-agent-tag">
+                      {conv.assigned_agent_id === agentId ? ` (Assigned to YOU)` : ` (Assigned to ${conv.assigned_agent_name})`}
+                    </span>
+                  )}
+                  <p className="last-message-summary">{conv.last_message_summary}</p>
+                  <div className="conversation-actions">
+                    {!conv.assigned_agent_id ? (
+                      <button onClick={(e) => { e.stopPropagation(); handleClaimConversation(conv.id); }} className="claim-button">Claim</button>
+                    ) : (
+                      conv.assigned_agent_id === agentId && (
+                        <button onClick={(e) => { e.stopPropagation(); handleReleaseConversation(conv.id); }} className="release-button">Release</button>
+                      )
+                    )}
                   </div>
-                ))
-              )}
-            </div>
-          </div>
-          <div className="message-input-area">
-            <input
-              type="text"
-              value={agentMessage}
-              onChange={(e) => setAgentMessage(e.target.value)}
-              onKeyPress={handleKeyPress}
-              placeholder="Type your reply to customer..."
-            />
-            <button onClick={handleAgentSend}>Send Reply</button>
-          </div>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
 
-        <div className="ai-suggestions-column"> {/* Right column: AI Suggestions & Metrics */}
-          <h3>AI Suggestions (for last customer message)</h3>
-          {latestAnalysis ? (
+        <div className="chat-view">
+          {selectedConversationId ? (
             <>
-              <p><strong>Customer's Message:</strong> "{latestAnalysis.user_message}"</p>
-
-              <div className="time-metrics">
-                  {convoStartTime && (
-                      <p>Conversation Start: <span>{new Date(convoStartTime).toLocaleTimeString()}</span></p>
-                  )}
-                  <p>Conversation Duration: <span>{convoDuration}</span></p>
-                  {/* Highlight warning/critical based on time since last customer message */}
-                  <p className={timeSinceLastCustomerMessage > '00:00:30' ? 'warning' : ''}>
-                      Time since last customer msg: <span className={timeSinceLastCustomerMessage > '00:01:00' ? 'critical' : ''}>
-                          {timeSinceLastCustomerMessage}
-                      </span>
-                  </p>
-              </div>
-
-              <p><strong>Sentiment:</strong> {renderSentiment(latestAnalysis.sentiment)}</p>
-              <p>
-                <strong>Predicted Intent:</strong> {latestAnalysis.predicted_intent.replace(/_/g, ' ').toUpperCase()} ({renderConfidence(latestAnalysis.intent_confidence)})
-              </p>
-
-              <h3>Extracted Entities:</h3>
-              {latestAnalysis.detected_entities && latestAnalysis.detected_entities.length > 0 ? (
-                <ul>
-                  {latestAnalysis.detected_entities.map((entity, index) => (
-                    <li key={index}>
-                      <strong>{entity.label}:</strong> {entity.text}
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p>No entities detected.</p>
-              )}
-
-              <h3>Knowledge Base Information:</h3>
-              <div className="suggestion-card">
-                  <ul>
-                  {latestAnalysis.suggestions.knowledge_base && latestAnalysis.suggestions.knowledge_base.length > 0 ? (
-                      latestAnalysis.suggestions.knowledge_base.map((info, index) => (
-                      <li key={index}>{info}</li>
-                      ))
+              <h3>Conversation ID: {selectedConversationId.substring(0, 8)}...</h3>
+              <div className="chat-box">
+                <div className="chat-messages">
+                  {loadingMessages ? (
+                    <p>Loading messages...</p>
                   ) : (
-                      <li>No specific knowledge base info found.</li>
-                  )}
-                  </ul>
-              </div>
-
-              <h3>Recommended Response:</h3>
-              <div className="suggestion-card">
-                  <p>{latestAnalysis.suggestions.pre_written_response}</p>
-                  <button onClick={() => copyToClipboard(latestAnalysis.suggestions.pre_written_response)}>
-                      Copy Response
-                  </button>
-              </div>
-
-              <h3>Next Best Actions:</h3>
-              <div className="suggestion-card">
-                  <ul>
-                  {latestAnalysis.suggestions.next_actions && latestAnalysis.suggestions.next_actions.length > 0 ? (
-                      latestAnalysis.suggestions.next_actions.map((action, index) => (
-                      <li key={index}>{action}</li>
+                    Array.isArray(selectedConversationMessages) && selectedConversationMessages.length === 0 ? (
+                      <p className="no-messages-placeholder">No messages in this conversation yet.</p>
+                    ) : (
+                      Array.isArray(selectedConversationMessages) && selectedConversationMessages.map((msg, index) => (
+                        <div key={index} className={`chat-message ${msg.sender}`}>
+                          {msg.image_url && (
+                            <img src={msg.image_url} alt="Customer Upload" style={{ maxWidth: '100%', borderRadius: '8px', marginBottom: '8px' }} />
+                          )}
+                          <p>{msg.text}</p>
+                          {msg.ocr_text && (
+                             <small style={{ color: '#888' }}>OCR: "{msg.ocr_text.substring(0, Math.min(msg.ocr_text.length, 50))}..."</small>
+                          )}
+                          {msg.analysis && (
+                            <div className="message-analysis">
+                              <strong>Intent:</strong> {msg.analysis.predicted_intent} ({msg.analysis.intent_confidence.toFixed(2)})<br/>
+                              <strong>Sentiment:</strong> {msg.analysis.sentiment.label} ({msg.analysis.sentiment.score.toFixed(2)})<br/>
+                              {msg.analysis.detected_entities && msg.analysis.detected_entities.length > 0 && (
+                                <>
+                                  <strong>Entities:</strong>
+                                  <ul>
+                                    {msg.analysis.detected_entities.map((entity, entIdx) => (
+                                      <li key={entIdx}>{entity.label}: {entity.text}</li>
+                                    ))}
+                                  </ul>
+                                </>
+                              )}
+                              {msg.analysis.suggestions?.pre_written_response && (
+                                  <small>Suggestion: "{msg.analysis.suggestions.pre_written_response}"</small>
+                              )}
+                            </div>
+                          )}
+                          <small>{new Date(msg.timestamp).toLocaleTimeString()}</small>
+                        </div>
                       ))
-                  ) : (
-                      <li>No specific next actions defined.</li>
+                    )
                   )}
-                  </ul>
+                </div>
+              </div>
+              <div className="message-input-area">
+                <input
+                  type="text"
+                  value={replyMessage}
+                  onChange={(e) => setReplyMessage(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && handleReplySend()}
+                  placeholder="Type your reply..."
+                />
+                <button onClick={handleReplySend} disabled={replyMessage.trim() === ''}>Send Reply</button>
               </div>
             </>
           ) : (
-            <p>Waiting for the first customer message to provide AI suggestions...</p>
+            <p className="select-conversation-placeholder">Select a conversation to view messages.</p>
+          )}
+        </div>
+
+        <div className="ai-suggestions-column">
+          <h3>AI Suggestions</h3>
+          {aiSuggestions ? (
+            <div className="suggestion-card">
+              <h4>Pre-written Response:</h4>
+              <p>{aiSuggestions.pre_written_response || 'N/A'}</p>
+              
+              <h4>Knowledge Base:</h4>
+              {aiSuggestions.knowledge_base && aiSuggestions.knowledge_base.length > 0 ? (
+                <ul>
+                  {aiSuggestions.knowledge_base.map((kb, index) => (
+                    <li key={index}>{kb}</li>
+                  ))}
+                </ul>
+              ) : (
+                <p>No specific knowledge base suggestions.</p>
+              )}
+
+              <h4>Next Actions:</h4>
+              {aiSuggestions.next_actions && aiSuggestions.next_actions.length > 0 ? (
+                <ul>
+                  {aiSuggestions.next_actions.map((action, index) => (
+                    <li key={index}>{action}</li>
+                  ))}
+                </ul>
+              ) : (
+                <p>No suggested next actions.</p>
+              )}
+            </div>
+          ) : (
+            <p>AI suggestions will appear here after a customer message is analyzed for the selected conversation.</p>
           )}
         </div>
       </div>

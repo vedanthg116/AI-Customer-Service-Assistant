@@ -1,4 +1,6 @@
-AI Customer Service Assistant
+AI Customer Service Assistant:
+
+
 This project is a real-time AI-powered customer service chat application with a dedicated agent dashboard for managing customer interactions. It demonstrates how to integrate large language models (like Google Gemini) for automated responses and sentiment analysis, alongside human agent intervention for complex queries.
 
 ✨ Features

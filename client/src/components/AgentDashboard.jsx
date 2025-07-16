@@ -1,5 +1,5 @@
 // client/src/components/AgentDashboard.jsx
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react'; // Import useCallback
 import { useAuth } from '../context/AuthContext';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -12,6 +12,7 @@ const AgentDashboard = () => {
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [aiSuggestions, setAiSuggestions] = useState(null);
 
+  // Agent identity state
   const [agentId, setAgentId] = useState(null);
   const [agentName, setAgentName] = useState('');
   const [agentNameInput, setAgentNameInput] = useState('');
@@ -21,9 +22,9 @@ const AgentDashboard = () => {
   const ws = useRef(null);
   const reconnectTimeout = useRef(null);
 
-  const { API_BASE_URL } = useAuth();
-
-  const WS_URL = API_BASE_URL.replace('http', 'ws') + '/ws/agent';
+  // Use environment variables for API and WebSocket URLs
+  const API_BASE_URL = import.meta.env.VITE_API_URL;
+  const WS_BASE_URL = import.meta.env.VITE_WS_URL;
 
   // Agent ID and Name from local storage
   useEffect(() => {
@@ -41,138 +42,140 @@ const AgentDashboard = () => {
     }
   }, []);
 
-  // WebSocket connection
-  useEffect(() => {
-    const connectWebSocket = () => {
-      if (reconnectTimeout.current) {
-        clearTimeout(reconnectTimeout.current);
-        reconnectTimeout.current = null;
+  // WebSocket connection logic wrapped in useCallback
+  const connectWebSocket = useCallback(() => {
+    if (reconnectTimeout.current) {
+      clearTimeout(reconnectTimeout.current);
+      reconnectTimeout.current = null;
+    }
+
+    if (!agentId) {
+      console.log("AgentDashboard: Agent ID not available for WebSocket. Not connecting.");
+      if (ws.current) {
+        ws.current.close();
+        ws.current = null;
       }
+      return;
+    }
 
-      if (!agentId) {
-        console.log("AgentDashboard: Agent ID not available for WebSocket. Not connecting.");
-        if (ws.current) {
-          ws.current.close();
-          ws.current = null;
-        }
-        return;
-      }
+    // Construct WebSocket URL with agentId as a path parameter
+    const currentWsUrl = `${WS_BASE_URL}/ws/agent/${agentId}`;
+    if (!ws.current || ws.current.readyState === WebSocket.CLOSED || ws.current.readyState === WebSocket.CLOSING) {
+      console.log('AgentDashboard: Attempting to connect Agent WebSocket to:', currentWsUrl);
+      ws.current = new WebSocket(currentWsUrl);
 
-      if (!ws.current || ws.current.readyState === WebSocket.CLOSED || ws.current.readyState === WebSocket.CLOSING) {
-        console.log('AgentDashboard: Attempting to connect Agent WebSocket to:', WS_URL);
-        ws.current = new WebSocket(WS_URL);
+      ws.current.onopen = () => {
+        console.log('AgentDashboard: Agent WebSocket connected successfully.');
+      };
 
-        ws.current.onopen = () => {
-          console.log('AgentDashboard: Agent WebSocket connected successfully.');
-        };
+      ws.current.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          console.log('AgentDashboard: Received WebSocket data:', data);
+          console.log('AgentDashboard: WebSocket data.analysis:', data.analysis);
 
-        ws.current.onmessage = (event) => {
-          try {
-            const data = JSON.parse(event.data);
-            console.log('AgentDashboard: Received WebSocket data:', data);
-            console.log('AgentDashboard: WebSocket data.analysis:', data.analysis);
+          if (data.type === 'customer_message_analysis') {
+            const convId = data.conversation_id;
+            const userId = data.user_id;
+            const userName = data.user_name;
 
-            if (data.type === 'customer_message_analysis') {
-              const convId = data.conversation_id;
-              const userId = data.user_id;
-              const userName = data.user_name;
-
-              setActiveConversations((prev) => {
-                const currentConversations = Array.isArray(prev) ? prev : [];
-                const existingConv = currentConversations.find(conv => conv.id === convId);
-                if (existingConv) {
-                  return prev.map(conv =>
-                    conv.id === convId
-                      ? { ...conv, last_message_summary: data.original_message }
-                      : conv
-                  );
-                } else {
-                  return [...currentConversations, {
-                    id: convId,
-                    user_id: userId,
-                    user_name: userName,
-                    start_time: new Date().toISOString(),
-                    status: 'open',
-                    last_message_summary: data.original_message,
-                    assigned_agent_id: null,
-                    assigned_agent_name: null
-                  }];
-                }
-              });
-
-              if (convId === selectedConversationId) {
-                setSelectedConversationMessages((prevMessages) => {
-                  const currentMessages = Array.isArray(prevMessages) ? prevMessages : [];
-                  const newMessages = [
-                    ...currentMessages,
-                    {
-                      text: data.original_message,
-                      sender: 'customer',
-                      timestamp: new Date().toISOString(),
-                      image_url: data.image_url,
-                      ocr_text: data.ocr_text,
-                      analysis: data.analysis
-                    }
-                  ];
-                  console.log('AgentDashboard: Updating selected conversation messages to:', newMessages);
-                  return newMessages;
-                });
-                console.log('AgentDashboard: Setting AI suggestions from WebSocket:', data.analysis?.suggestions);
-                setAiSuggestions(data.analysis?.suggestions || null);
+            setActiveConversations((prev) => {
+              const currentConversations = Array.isArray(prev) ? prev : [];
+              const existingConv = currentConversations.find(conv => conv.id === convId);
+              if (existingConv) {
+                return prev.map(conv =>
+                  conv.id === convId
+                    ? { ...conv, last_message_summary: data.original_message }
+                    : conv
+                );
+              } else {
+                return [...currentConversations, {
+                  id: convId,
+                  user_id: userId,
+                  user_name: userName,
+                  start_time: new Date().toISOString(),
+                  status: 'open',
+                  last_message_summary: data.original_message,
+                  assigned_agent_id: null,
+                  assigned_agent_name: null
+                }];
               }
+            });
 
-            } else if (data.type === 'agent_chat_message') {
-                const convId = data.conversation_id;
-                if (convId === selectedConversationId) {
-                    setSelectedConversationMessages((prevMessages) => {
-                      const currentMessages = Array.isArray(prevMessages) ? prevMessages : [];
-                      const newMessages = [
-                          ...currentMessages,
-                          {
-                              text: data.text,
-                              sender: data.sender,
-                              timestamp: data.timestamp,
-                          }
-                      ];
-                      console.log('AgentDashboard: Updating selected conversation messages to:', newMessages);
-                      return newMessages;
-                    });
-                }
-            } else if (data.type === 'conversation_assigned') {
-                setActiveConversations(prev => prev.map(conv =>
-                    conv.id === data.conversation_id
-                        ? { ...conv, assigned_agent_id: data.assigned_agent_id, assigned_agent_name: data.assigned_agent_name }
-                        : conv
-                ));
-                console.log(`AgentDashboard: Conversation ${data.conversation_id} assigned to ${data.assigned_agent_name}`);
-            } else if (data.type === 'conversation_unassigned') {
-                setActiveConversations(prev => prev.map(conv =>
-                    conv.id === data.conversation_id
-                        ? { ...conv, assigned_agent_id: null, assigned_agent_name: null }
-                        : conv
-                ));
-                console.log(`AgentDashboard: Conversation ${data.conversation_id} unassigned from ${data.unassigned_agent_name}`);
+            if (convId === selectedConversationId) {
+              setSelectedConversationMessages((prevMessages) => {
+                const currentMessages = Array.isArray(prevMessages) ? prevMessages : [];
+                const newMessages = [
+                  ...currentMessages,
+                  {
+                    text: data.original_message,
+                    sender: 'customer',
+                    timestamp: new Date().toISOString(),
+                    image_url: data.image_url,
+                    ocr_text: data.ocr_text,
+                    analysis: data.analysis
+                  }
+                ];
+                console.log('AgentDashboard: Updating selected conversation messages to:', newMessages);
+                return newMessages;
+              });
+              console.log('AgentDashboard: Setting AI suggestions from WebSocket:', data.analysis?.suggestions);
+              setAiSuggestions(data.analysis?.suggestions || null);
             }
 
-          } catch (error) {
-            console.error("AgentDashboard: Error parsing WebSocket message:", error, "Raw data:", event.data);
+          } else if (data.type === 'agent_chat_message') {
+              const convId = data.conversation_id;
+              if (convId === selectedConversationId) {
+                  setSelectedConversationMessages((prevMessages) => {
+                    const currentMessages = Array.isArray(prevMessages) ? prevMessages : [];
+                    const newMessages = [
+                        ...currentMessages,
+                        {
+                            text: data.text,
+                            sender: data.sender,
+                            timestamp: data.timestamp,
+                        }
+                    ];
+                    console.log('AgentDashboard: Updating selected conversation messages to:', newMessages);
+                    return newMessages;
+                  });
+              }
+          } else if (data.type === 'conversation_assigned') {
+              setActiveConversations(prev => prev.map(conv =>
+                  conv.id === data.conversation_id
+                      ? { ...conv, assigned_agent_id: data.assigned_agent_id, assigned_agent_name: data.assigned_agent_name }
+                      : conv
+              ));
+              console.log(`AgentDashboard: Conversation ${data.conversation_id} assigned to ${data.assigned_agent_name}`);
+          } else if (data.type === 'conversation_unassigned') {
+              setActiveConversations(prev => prev.map(conv =>
+                  conv.id === data.conversation_id
+                      ? { ...conv, assigned_agent_id: null, assigned_agent_name: null }
+                      : conv
+              ));
+              console.log(`AgentDashboard: Conversation ${data.conversation_id} unassigned from ${data.unassigned_agent_name}`);
           }
-        };
 
-        ws.current.onclose = (event) => {
-          console.log('AgentDashboard: Agent WebSocket disconnected.', event.code, event.reason);
-          if (event.code !== 1000 && !reconnectTimeout.current) {
-            console.log('AgentDashboard: Attempting to reconnect WebSocket in 3 seconds...');
-            reconnectTimeout.current = setTimeout(connectWebSocket, 3000);
-          }
-        };
+        } catch (error) {
+          console.error("AgentDashboard: Error parsing WebSocket message:", error, "Raw data:", event.data);
+        }
+      };
 
-        ws.current.onerror = (error) => {
-          console.error('AgentDashboard: Agent WebSocket error:', error);
-        };
-      }
-    };
+      ws.current.onclose = (event) => {
+        console.log('AgentDashboard: Agent WebSocket disconnected.', event.code, event.reason);
+        if (event.code !== 1000 && !reconnectTimeout.current) {
+          console.log('AgentDashboard: Attempting to reconnect WebSocket in 3 seconds...');
+          reconnectTimeout.current = setTimeout(connectWebSocket, 3000);
+        }
+      };
 
+      ws.current.onerror = (error) => {
+        console.error('AgentDashboard: Agent WebSocket error:', error);
+      };
+    }
+  }, [agentId, WS_BASE_URL, selectedConversationId]); // Added selectedConversationId to dependencies for onmessage updates
+
+  useEffect(() => {
     if (!showAgentNameInput && agentId) {
       connectWebSocket();
     }
@@ -187,8 +190,7 @@ const AgentDashboard = () => {
       ws.current = null;
       reconnectTimeout.current = null;
     };
-  }, [agentId, WS_URL, showAgentNameInput]);
-
+  }, [agentId, WS_BASE_URL, showAgentNameInput, connectWebSocket]); // Added connectWebSocket to dependencies
 
   const fetchActiveConversations = async () => {
     setLoadingConversations(true);
@@ -311,7 +313,7 @@ const AgentDashboard = () => {
     setLoadingConversations(true);
   };
 
-  // NEW: Function to handle switching agents
+  // Function to handle switching agents
   const handleSwitchAgent = () => {
     console.log("AgentDashboard: Switching agent...");
     // Clear local storage for current agent
@@ -344,7 +346,6 @@ const AgentDashboard = () => {
       reconnectTimeout.current = null;
     }
   };
-
 
   const handleClaimConversation = async (convId) => {
     if (!agentId || !agentName) {
@@ -431,7 +432,7 @@ const AgentDashboard = () => {
     <div className="panel agent-panel">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
         <h2>Agent Dashboard ({agentName})</h2>
-        <button onClick={handleSwitchAgent} className="home-button logout-button">Switch Agent</button> {/* NEW BUTTON */}
+        <button onClick={handleSwitchAgent} className="home-button logout-button">Switch Agent</button>
       </div>
       <div className="agent-content">
         <div className="conversation-list">

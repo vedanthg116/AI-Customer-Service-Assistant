@@ -1,7 +1,7 @@
 // client/src/components/CustomerChat.jsx
 import React, { useState, useEffect, useRef } from 'react';
-import { useAuth } from '../context/AuthContext';
-import { v4 as uuidv4 } from 'uuid';
+import { useAuth } from '../context/AuthContext'; // Still used for API_BASE_URL
+import { v4 as uuidv4 } from 'uuid'; // Import uuidv4 for generating unique IDs
 
 const CustomerChat = () => {
   const [message, setMessage] = useState('');
@@ -9,11 +9,12 @@ const CustomerChat = () => {
   const [selectedImage, setSelectedImage] = useState(null);
   const [loadingHistory, setLoadingHistory] = useState(true);
 
+  // State for customer identity
   const [customerId, setCustomerId] = useState(null);
   const [customerName, setCustomerName] = useState('');
-  const [nameInput, setNameInput] = useState('');
+  const [nameInput, setNameInput] = useState(''); // For the name input field
   const [showNameInput, setShowNameInput] = useState(true);
-  // NEW: State to hold previous customer details for "Continue" option
+  // State to hold previous customer details for "Continue" option
   const [previousCustomerDetails, setPreviousCustomerDetails] = useState(null); 
 
   const chatBoxRef = useRef(null);
@@ -21,7 +22,9 @@ const CustomerChat = () => {
   const ws = useRef(null);
   const reconnectTimeout = useRef(null);
 
-  const { API_BASE_URL } = useAuth();
+  // Use environment variables for API and WebSocket URLs
+  const API_BASE_URL = import.meta.env.VITE_API_URL;
+  const WS_BASE_URL = import.meta.env.VITE_WS_URL;
 
   // Auto-scroll chat to bottom
   useEffect(() => {
@@ -99,7 +102,7 @@ const CustomerChat = () => {
         reconnectTimeout.current = null;
       }
 
-      if (!customerId) {
+      if (!customerId) { // Only connect if customerId is available
         console.log("CustomerChat: Customer ID not available for WebSocket. Not connecting.");
         if (ws.current) {
           ws.current.close();
@@ -108,8 +111,8 @@ const CustomerChat = () => {
         return;
       }
 
-      // NEW: Pass customerId in WebSocket URL
-      const currentWsUrl = `${WS_URL}/${customerId}`; 
+      // Construct WebSocket URL with customerId as a path parameter
+      const currentWsUrl = `${WS_BASE_URL}/ws/customer/${customerId}`; 
       if (!ws.current || ws.current.readyState === WebSocket.CLOSED || ws.current.readyState === WebSocket.CLOSING) {
         console.log('CustomerChat: Attempting to connect Customer WebSocket to:', currentWsUrl);
         ws.current = new WebSocket(currentWsUrl);
@@ -171,7 +174,7 @@ const CustomerChat = () => {
       ws.current = null;
       reconnectTimeout.current = null;
     };
-  }, [customerId, WS_URL, showNameInput]);
+  }, [customerId, WS_BASE_URL, showNameInput]); // Dependencies updated
 
   const handleImageChange = (e) => {
     const file = e.target.files[0];
@@ -250,19 +253,19 @@ const CustomerChat = () => {
     fileInputRef.current.click();
   };
 
-  // NEW: Handle name submission for new chat
+  // Handle name submission for new chat
   const handleStartNewChatSubmit = () => {
     if (nameInput.trim() === '') {
       alert("Please enter your name to start a new chat.");
       return;
     }
-    const newCustomerId = uuidv4();
+    const newCustomerId = uuidv4(); // Generate a new UUID
     localStorage.setItem('customer_id', newCustomerId);
     localStorage.setItem('customer_name', nameInput.trim());
     initializeChat(newCustomerId, nameInput.trim());
   };
 
-  // NEW: Handle continuing previous chat
+  // Handle continuing previous chat
   const handleContinuePreviousChat = () => {
     if (previousCustomerDetails) {
       localStorage.setItem('customer_id', previousCustomerDetails.id); // Ensure it's explicitly set

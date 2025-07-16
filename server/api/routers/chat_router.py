@@ -4,25 +4,25 @@ from fastapi import (
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy.orm import selectinload # Import selectinload for eager loading
+from sqlalchemy.orm import selectinload
 from typing import List, Optional
-from uuid import UUID, uuid4 # Import uuid4 for generating new UUIDs
+from uuid import UUID, uuid4
 from datetime import datetime
 import json
 import base64
 
 from api.schemas import (
     MessageRequest, AgentMessageRequest, ChatMessage,
-    ConversationAssignmentRequest, ConversationUnassignmentRequest # NEW schemas
+    ConversationAssignmentRequest, ConversationUnassignmentRequest
 )
 from config.gemini_config import gemini_model
 from utils.kb_manager import knowledge_base
 from utils.connection_manager import manager
 from utils.ocr_processor import detect_text_from_image
-# Removed: from auth.auth import current_active_user
 from database import User, Conversation, Message, KnowledgeBaseArticle, get_async_session
 
 router = APIRouter()
+
 
 # -----------------------------------------------------------
 # Gemini Prompt Construction
@@ -31,11 +31,7 @@ def create_gemini_prompt(
     latest_user_message: str,
     full_chat_history: List[ChatMessage],
     knowledge_base_data: dict,
-    ocr_text: Optional[str] = None
-) -> str:
-    """
-    Build prompt for Gemini: combines history, OCR text, KB data into JSON-expected prompt.
-    """
+    ocr_text: Optional[str] = None) -> str:
     all_intents = ", ".join(knowledge_base_data.keys())
     relevant_kb_info = ""
     text_for_kb = latest_user_message + (f" {ocr_text}" if ocr_text else "")
@@ -90,13 +86,11 @@ You are an AI customer support assistant.
 """
     return prompt
 
+
 # -----------------------------------------------------------
 # Helpers
 # -----------------------------------------------------------
 async def get_or_create_user(db: AsyncSession, user_id: UUID, user_name: str) -> User:
-    """
-    Retrieves a user by ID, or creates a new one if not found.
-    """
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalars().first()
     if not user:
@@ -106,7 +100,6 @@ async def get_or_create_user(db: AsyncSession, user_id: UUID, user_name: str) ->
         await db.refresh(user)
         print(f"Created new user (customer) {user.full_name} (ID: {user.id})")
     else:
-        # Update user name if it changed
         if user.full_name != user_name:
             user.full_name = user_name
             await db.commit()
@@ -114,10 +107,8 @@ async def get_or_create_user(db: AsyncSession, user_id: UUID, user_name: str) ->
             print(f"Updated user {user.id} name to {user.full_name}")
     return user
 
+
 async def get_or_create_conversation(db: AsyncSession, user_id: UUID) -> Conversation:
-    """
-    Retrieves the latest open conversation for a given user, or creates a new one if none exists.
-    """
     result = await db.execute(
         select(Conversation)
         .where(Conversation.user_id == user_id)
@@ -136,17 +127,14 @@ async def get_or_create_conversation(db: AsyncSession, user_id: UUID) -> Convers
         print(f"Found existing open conversation {conversation.id} for user {user_id}")
     return conversation
 
+
 async def save_message_to_db(
     db: AsyncSession,
     conversation_id: UUID,
     sender: str,
     text_content: str,
     image_url: Optional[str] = None,
-    ocr_extracted_text: Optional[str] = None
-) -> Message:
-    """
-    Save message to DB.
-    """
+    ocr_extracted_text: Optional[str] = None) -> Message:
     msg = Message(
         conversation_id=conversation_id,
         sender=sender,
@@ -166,19 +154,15 @@ async def save_message_to_db(
 # -----------------------------------------------------------
 @router.post("/analyze-message")
 async def analyze_message_endpoint(
-    request: MessageRequest,  # Now includes customer_id and customer_name
+    request: MessageRequest,  # Includes customer_id and customer_name
     db: AsyncSession = Depends(get_async_session)
 ):
-    """
-    Analyze text message with Gemini, save & broadcast.
-    """
     customer_id = request.customer_id
     customer_name = request.customer_name
     user_message = request.text
     full_chat_history = request.chat_history
-    response_data = {}  # Initialize response_data
+    response_data = {}
 
-    # Ensure the user (customer) exists or create them
     customer_user = await get_or_create_user(db, customer_id, customer_name)
     print(f"Customer {customer_user.full_name} (ID: {customer_id}) sent message: '{user_message}'")
 
@@ -217,11 +201,11 @@ async def analyze_message_endpoint(
                 for part in gemini_response.candidates[0].content.parts:
                     gemini_output_text += part.text
             else:
-                raise ValueError("Gemini returned no candidates, possibly due to safety settings.")
+                raise ValueError("Gemini returned no candidates.")
 
             cleaned_json_str = gemini_output_text.strip()
             if cleaned_json_str.startswith("```json") and cleaned_json_str.endswith("```"):
-                cleaned_json_str = cleaned_json_str[len("```json"): -len("```")].strip()
+                cleaned_json_str = cleaned_json_str[len("```json"):-len("```")].strip()
 
             parsed_gemini_data = json.loads(cleaned_json_str)
 
@@ -232,48 +216,46 @@ async def analyze_message_endpoint(
                 "sentiment": parsed_gemini_data.get("sentiment", {"label": "NEUTRAL", "score": 0.5}),
                 "suggestions": {
                     "knowledge_base": parsed_gemini_data.get("suggestions", {}).get("knowledge_base", []),
-                    "pre_written_response": parsed_gemini_data.get("suggestions", {}).get("pre_written_response", "I'm sorry, I couldn't generate a specific response at this moment. Please check the customer's query and the available knowledge base."),
+                    "pre_written_response": parsed_gemini_data.get("suggestions", {}).get("pre_written_response", "I'm sorry, couldn't generate a response."),
                     "next_actions": parsed_gemini_data.get("suggestions", {}).get("next_actions", [])
                 },
                 "detected_entities": parsed_gemini_data.get("detected_entities", []),
                 "timestamp": datetime.now().isoformat(),
                 "ocr_extracted_text": parsed_gemini_data.get("ocr_extracted_text", "")
             }
-
         except json.JSONDecodeError as e:
-            print(f"JSON parsing error from Gemini response: {e}. Raw Gemini output: \n{gemini_output_text}")
+            print(f"JSON parsing error: {e}. Raw output: \n{gemini_output_text}")
             response_data = {
                 "user_message": user_message,
                 "predicted_intent": "parsing_error",
                 "intent_confidence": 0.0,
                 "sentiment": {"label": "UNKNOWN", "score": 0.0},
                 "suggestions": {
-                    "knowledge_base": ["AI response format error. Please check AI logs."],
-                    "pre_written_response": "I apologize, there was an issue processing the AI's response. Please handle this request manually.",
-                    "next_actions": ["Review AI output format.", "Manually assist customer."]
+                    "knowledge_base": ["AI response format error."],
+                    "pre_written_response": "Issue processing AI response. Please handle manually.",
+                    "next_actions": ["Review AI output format.", "Assist customer manually."]
                 },
                 "detected_entities": [],
                 "timestamp": datetime.now().isoformat(),
                 "ocr_extracted_text": ""
             }
         except Exception as e:
-            print(f"Error calling Gemini API or processing response: {e}")
+            print(f"Error calling Gemini or processing response: {e}")
             response_data = {
                 "user_message": user_message,
                 "predicted_intent": "api_error",
                 "intent_confidence": 0.0,
                 "sentiment": {"label": "UNKNOWN", "score": 0.0},
                 "suggestions": {
-                    "knowledge_base": ["Error contacting AI service. Please check network/API status."],
-                    "pre_written_response": "I apologize, there was an issue connecting to the AI service. Please try again or provide manual assistance.",
-                    "next_actions": ["Check AI service logs.", "Provide manual assistance."]
+                    "knowledge_base": ["Error contacting AI service."],
+                    "pre_written_response": "Issue connecting to AI service. Please assist manually.",
+                    "next_actions": ["Check AI logs.", "Assist customer manually."]
                 },
                 "detected_entities": [],
                 "timestamp": datetime.now().isoformat(),
                 "ocr_extracted_text": ""
             }
 
-    # Broadcast to all connected agent UIs
     await manager.broadcast_to_agents(json.dumps({
         "type": "customer_message_analysis",
         "conversation_id": str(conversation.id),
@@ -283,8 +265,7 @@ async def analyze_message_endpoint(
         "analysis": response_data
     }))
 
-    # Broadcast original customer message
-    await manager.broadcast_to_customers(json.dumps({
+    await manager.send_to_customer(customer_id, json.dumps({
         "type": "customer_chat_message",
         "sender": "customer",
         "text": user_message,
@@ -295,6 +276,9 @@ async def analyze_message_endpoint(
 
     return response_data
 
+# -----------------------------------------------------------
+# /analyze-image-message and other customer-facing routes
+# -----------------------------------------------------------
 @router.post("/analyze-image-message")
 async def analyze_image_message_endpoint(
     file: UploadFile = File(...),
@@ -304,9 +288,6 @@ async def analyze_image_message_endpoint(
     chat_history_json: str = Form(...),
     db: AsyncSession = Depends(get_async_session)
 ):
-    """
-    Handle image upload: OCR + Gemini + broadcast.
-    """
     customer_user = await get_or_create_user(db, customer_id, customer_name)
     print(f"Customer {customer_user.full_name} (ID: {customer_id}) sent image upload: {file.filename} with text: '{text}'")
 
@@ -319,15 +300,12 @@ async def analyze_image_message_endpoint(
 
     combined_message_for_gemini = text if text else ""
     if ocr_extracted_text:
-        if combined_message_for_gemini:
-            combined_message_for_gemini += f"\n(Text from screenshot: {ocr_extracted_text})"
-        else:
-            combined_message_for_gemini = f"Text from screenshot: {ocr_extracted_text}"
+        combined_message_for_gemini += f"\n(Text from screenshot: {ocr_extracted_text})"
 
     if not combined_message_for_gemini.strip():
-        combined_message_for_gemini = "Customer sent an image with no recognizable text or accompanying message."
+        combined_message_for_gemini = "Customer sent an image with no recognizable text or message."
 
-    response_data = {}  # Initialize response_data
+    response_data = {}
 
     conversation = await get_or_create_conversation(db, customer_id)
 
@@ -350,8 +328,8 @@ async def analyze_image_message_endpoint(
             "sentiment": {"label": "UNKNOWN", "score": 0.0},
             "suggestions": {
                 "knowledge_base": ["System error: AI model not loaded."],
-                "pre_written_response": "I apologize, the AI assistant is currently experiencing technical difficulties. Please proceed manually.",
-                "next_actions": ["Inform customer about AI issue.", "Provide manual assistance."]
+                "pre_written_response": "AI assistant is down. Please assist manually.",
+                "next_actions": ["Inform customer about AI issue.", "Assist manually."]
             },
             "detected_entities": [],
             "timestamp": datetime.now().isoformat(),
@@ -373,11 +351,11 @@ async def analyze_image_message_endpoint(
                 for part in gemini_response.candidates[0].content.parts:
                     gemini_output_text += part.text
             else:
-                raise ValueError("Gemini returned no candidates, possibly due to safety settings.")
+                raise ValueError("Gemini returned no candidates.")
 
             cleaned_json_str = gemini_output_text.strip()
             if cleaned_json_str.startswith("```json") and cleaned_json_str.endswith("```"):
-                cleaned_json_str = cleaned_json_str[len("```json"): -len("```")].strip()
+                cleaned_json_str = cleaned_json_str[len("```json"):-len("```")].strip()
 
             parsed_gemini_data = json.loads(cleaned_json_str)
 
@@ -388,7 +366,7 @@ async def analyze_image_message_endpoint(
                 "sentiment": parsed_gemini_data.get("sentiment", {"label": "NEUTRAL", "score": 0.5}),
                 "suggestions": {
                     "knowledge_base": parsed_gemini_data.get("suggestions", {}).get("knowledge_base", []),
-                    "pre_written_response": parsed_gemini_data.get("suggestions", {}).get("pre_written_response", "I'm sorry, I couldn't generate a specific response at this moment. Please check the customer's query and the available knowledge base."),
+                    "pre_written_response": parsed_gemini_data.get("suggestions", {}).get("pre_written_response", "Couldn't generate response."),
                     "next_actions": parsed_gemini_data.get("suggestions", {}).get("next_actions", [])
                 },
                 "detected_entities": parsed_gemini_data.get("detected_entities", []),
@@ -396,18 +374,17 @@ async def analyze_image_message_endpoint(
                 "image_url": image_base64_url,
                 "ocr_extracted_text": ocr_extracted_text
             }
-
         except json.JSONDecodeError as e:
-            print(f"JSON parsing error from Gemini response: {e}. Raw Gemini output: \n{gemini_output_text}")
+            print(f"JSON parsing error: {e}. Raw output: \n{gemini_output_text}")
             response_data = {
                 "user_message": combined_message_for_gemini,
                 "predicted_intent": "parsing_error",
                 "intent_confidence": 0.0,
                 "sentiment": {"label": "UNKNOWN", "score": 0.0},
                 "suggestions": {
-                    "knowledge_base": ["AI response format error. Please check AI logs."],
-                    "pre_written_response": "I apologize, there was an issue processing the AI's response. Please handle this request manually.",
-                    "next_actions": ["Review AI output format.", "Manually assist customer."]
+                    "knowledge_base": ["AI response format error."],
+                    "pre_written_response": "Issue processing AI response. Please assist manually.",
+                    "next_actions": ["Check AI logs.", "Assist manually."]
                 },
                 "detected_entities": [],
                 "timestamp": datetime.now().isoformat(),
@@ -415,16 +392,16 @@ async def analyze_image_message_endpoint(
                 "ocr_extracted_text": ocr_extracted_text
             }
         except Exception as e:
-            print(f"Error calling Gemini API or processing image: {e}")
+            print(f"Error calling Gemini or processing image: {e}")
             response_data = {
                 "user_message": combined_message_for_gemini,
                 "predicted_intent": "api_error",
                 "intent_confidence": 0.0,
                 "sentiment": {"label": "UNKNOWN", "score": 0.0},
                 "suggestions": {
-                    "knowledge_base": ["Error processing image with AI service. Please check network/API status."],
-                    "pre_written_response": "I apologize, there was an issue processing the image with the AI service. Please try again or provide manual assistance.",
-                    "next_actions": ["Check AI service logs.", "Provide manual assistance."]
+                    "knowledge_base": ["Error contacting AI service."],
+                    "pre_written_response": "Issue connecting to AI service. Please assist manually.",
+                    "next_actions": ["Check AI logs.", "Assist manually."]
                 },
                 "detected_entities": [],
                 "timestamp": datetime.now().isoformat(),
@@ -432,7 +409,6 @@ async def analyze_image_message_endpoint(
                 "ocr_extracted_text": ocr_extracted_text
             }
 
-    # Broadcast to all connected agent UIs
     await manager.broadcast_to_agents(json.dumps({
         "type": "customer_message_analysis",
         "conversation_id": str(conversation.id),
@@ -444,8 +420,7 @@ async def analyze_image_message_endpoint(
         "analysis": response_data
     }))
 
-    # Broadcast to customer UIs
-    await manager.broadcast_to_customers(json.dumps({
+    await manager.send_to_customer(customer_id, json.dumps({
         "type": "customer_chat_message",
         "sender": "customer",
         "text": text or "Screenshot shared.",
@@ -455,9 +430,6 @@ async def analyze_image_message_endpoint(
     }))
 
     return response_data
-# -----------------------------------------------------------
-# Agent-Facing Routes (No Authentication Required for Demo)
-# -----------------------------------------------------------
 
 @router.post("/send-agent-message")
 async def send_agent_message_endpoint(
@@ -469,7 +441,7 @@ async def send_agent_message_endpoint(
     """
     agent_message = request.message
     agent_id = request.agent_id
-    agent_name = request.agent_name  # NEW: Get agent name from request
+    agent_name = request.agent_name
     conversation_id = request.conversation_id
 
     print(f"Agent '{agent_name}' (ID: {agent_id}) sent: '{agent_message}' to conversation {conversation_id}")
@@ -491,7 +463,18 @@ async def send_agent_message_endpoint(
         "conversation_id": str(conversation_id)
     })
 
-    await manager.broadcast_to_customers(message_to_broadcast)
+    # Find user_id linked to conversation
+    result = await db.execute(
+        select(Conversation.user_id).where(Conversation.id == conversation_id)
+    )
+    customer_id_for_conversation = result.scalars().first()
+
+    if customer_id_for_conversation:
+        await manager.send_to_customer(customer_id_for_conversation, message_to_broadcast)
+    else:
+        print(f"Warning: Could not find customer_id for conversation {conversation_id} to send agent message.")
+
+    # Broadcast to all agents
     await manager.broadcast_to_agents(message_to_broadcast)
 
     return {"status": "success", "message": "Agent message sent"}
@@ -518,7 +501,7 @@ async def assign_conversation(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
 
     if conversation.assigned_agent_id and conversation.assigned_agent_id != agent_id:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Conversation already assigned to {conversation.assigned_agent_name}")
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Already assigned to {conversation.assigned_agent_name}")
 
     conversation.assigned_agent_id = agent_id
     conversation.assigned_agent_name = agent_name
@@ -556,7 +539,7 @@ async def unassign_conversation(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
 
     if not conversation.assigned_agent_id:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Conversation is not currently assigned")
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Conversation not assigned")
 
     old_agent_id = conversation.assigned_agent_id
     old_agent_name = conversation.assigned_agent_name
@@ -576,10 +559,11 @@ async def unassign_conversation(
     }))
 
     return {"status": "success", "message": "Conversation unassigned", "conversation_id": str(conversation.id)}
+
 @router.get("/conversations/active")
 async def get_active_conversations(db: AsyncSession = Depends(get_async_session)):
     """
-    Get all active conversations, including user and agent assignment details.
+    Get all active conversations, including user & assignment details.
     """
     result = await db.execute(
         select(Conversation)
@@ -589,17 +573,17 @@ async def get_active_conversations(db: AsyncSession = Depends(get_async_session)
     )
     conversations = result.scalars().all()
 
-    formatted_conversations = []
+    formatted = []
     for conv in conversations:
-        last_message_result = await db.execute(
+        last_msg_result = await db.execute(
             select(Message)
             .where(Message.conversation_id == conv.id)
             .order_by(Message.timestamp.desc())
             .limit(1)
         )
-        last_message = last_message_result.scalars().first()
+        last_message = last_msg_result.scalars().first()
 
-        formatted_conversations.append({
+        formatted.append({
             "id": str(conv.id),
             "user_id": str(conv.user_id),
             "user_name": conv.user.full_name if conv.user else "Unknown Customer",
@@ -609,7 +593,7 @@ async def get_active_conversations(db: AsyncSession = Depends(get_async_session)
             "assigned_agent_id": str(conv.assigned_agent_id) if conv.assigned_agent_id else None,
             "assigned_agent_name": conv.assigned_agent_name
         })
-    return formatted_conversations
+    return formatted
 
 
 @router.get("/chat-history/conversation/{conversation_id}", response_model=List[ChatMessage])
@@ -624,24 +608,20 @@ async def get_conversation_history(conversation_id: UUID, db: AsyncSession = Dep
     )
     messages = messages_result.scalars().all()
 
-    chat_history = []
-    for msg in messages:
-        chat_history.append(ChatMessage(
+    return [
+        ChatMessage(
             text=msg.text_content,
             sender=msg.sender,
             timestamp=msg.timestamp.isoformat(),
             image_url=msg.image_url,
             ocr_text=msg.ocr_extracted_text
-        ))
-
-    return chat_history
+        )
+        for msg in messages
+    ]
 
 
 @router.get("/chat-history/user/{user_id}", response_model=List[ChatMessage])
-async def get_chat_history_for_user(
-    user_id: UUID,
-    db: AsyncSession = Depends(get_async_session)
-):
+async def get_chat_history_for_user(user_id: UUID, db: AsyncSession = Depends(get_async_session)):
     """
     Latest chat history for a specific user ID.
     """
@@ -655,7 +635,7 @@ async def get_chat_history_for_user(
     conversation = result.scalars().first()
 
     if not conversation:
-        print(f"Backend: No active conversation found for user {user_id}. Returning empty list.")
+        print(f"No active conversation for user {user_id}. Returning empty list.")
         return []
 
     messages_result = await db.execute(
@@ -665,23 +645,17 @@ async def get_chat_history_for_user(
     )
     messages = messages_result.scalars().all()
 
-    chat_history = []
-    for msg in messages:
-        chat_history.append(ChatMessage(
+    print(f"Fetched {len(messages)} messages for user {user_id}.")
+    return [
+        ChatMessage(
             text=msg.text_content,
             sender=msg.sender,
             timestamp=msg.timestamp.isoformat(),
             image_url=msg.image_url,
             ocr_text=msg.ocr_extracted_text
-        ))
-
-    print(f"Backend: Successfully fetched {len(chat_history)} messages for user {user_id}.")
-    return chat_history
-
-
-# -----------------------------------------------------------
-# Knowledge Base Article Management (Demo, should be secured)
-# -----------------------------------------------------------
+        )
+        for msg in messages
+    ]
 
 @router.post("/kb/articles", status_code=status.HTTP_201_CREATED)
 async def create_kb_article(
@@ -697,7 +671,7 @@ async def create_kb_article(
     db.add(article)
     await db.commit()
     await db.refresh(article)
-    return {"message": "Knowledge base article created successfully", "article_id": str(article.id)}
+    return {"message": "Knowledge base article created", "article_id": str(article.id)}
 
 
 @router.get("/kb/articles", response_model=List[dict])
@@ -707,14 +681,14 @@ async def get_kb_articles(db: AsyncSession = Depends(get_async_session)):
     """
     result = await db.execute(select(KnowledgeBaseArticle).order_by(KnowledgeBaseArticle.title))
     articles = result.scalars().all()
-    return [{"id": str(a.id), "title": a.title, "content": a.content, "tags": a.tags, "last_updated": a.last_updated.isoformat()} for a in articles]
+    return [
+        {"id": str(a.id), "title": a.title, "content": a.content, "tags": a.tags, "last_updated": a.last_updated.isoformat()}
+        for a in articles
+    ]
 
 
 @router.delete("/kb/articles/{article_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_kb_article(
-    article_id: UUID,
-    db: AsyncSession = Depends(get_async_session)
-):
+async def delete_kb_article(article_id: UUID, db: AsyncSession = Depends(get_async_session)):
     """
     Delete KB article by ID.
     """

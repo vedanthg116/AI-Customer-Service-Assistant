@@ -4,15 +4,16 @@ from fastapi import WebSocket
 from uuid import UUID # Import UUID
 
 class ConnectionManager:
-    # Changed active_connections structure:
-    # "customer": { UUID (customer_id): [WebSocket1, WebSocket2 (if multiple tabs)] }
-    # "agent":    { UUID (agent_id):    [WebSocket1, WebSocket2 (if multiple tabs)] }
-    self.active_connections: Dict[str, Dict[UUID, List[WebSocket]]] = {
-        "customer": {},
-        "agent": {}
-    }
+    def __init__(self): # Initialize instance attributes here
+        # Changed active_connections structure:
+        # "customer": { UUID (customer_id): [WebSocket1, WebSocket2 (if multiple tabs)] }
+        # "agent":    { UUID (agent_id):    [WebSocket1, WebSocket2 (if multiple tabs)] }
+        self.active_connections: Dict[str, Dict[UUID, List[WebSocket]]] = {
+            "customer": {},
+            "agent": {}
+        }
 
-    async def connect(self, websocket: WebSocket, client_type: str, user_id: UUID): # Added user_id parameter
+    async def connect(self, websocket: WebSocket, client_type: str, user_id: UUID):
         """
         Establishes a new WebSocket connection and adds it to the appropriate list.
         """
@@ -31,7 +32,7 @@ class ConnectionManager:
         except Exception as e:
             print(f"Backend: Error accepting WebSocket connection for {client_type} {user_id} ({websocket.client}): {e}")
 
-    def disconnect(self, websocket: WebSocket, client_type: str, user_id: UUID): # Added user_id parameter
+    def disconnect(self, websocket: WebSocket, client_type: str, user_id: UUID):
         """
         Removes a disconnected WebSocket from the appropriate list.
         """
@@ -39,7 +40,7 @@ class ConnectionManager:
             if websocket in self.active_connections[client_type][user_id]:
                 self.active_connections[client_type][user_id].remove(websocket)
                 print(f"{client_type.capitalize()} disconnected: {user_id} ({websocket.client}) - Remaining for user: {len(self.active_connections[client_type][user_id])}")
-                if not self.active_connections[client_type][user_id]: # If no more connections for this user
+                if not self.active_connections[client_type][user_id]:
                     del self.active_connections[client_type][user_id]
                     print(f"All {client_type} WebSockets for {user_id} disconnected.")
             else:
@@ -55,10 +56,8 @@ class ConnectionManager:
             await websocket.send_text(message)
         except Exception as e:
             print(f"Error sending personal message to {websocket.client}: {e}")
-            # Note: Disconnection should ideally be handled by the client's onclose event
-            # or by periodic health checks. For now, we just log.
 
-    async def send_to_customer(self, customer_id: UUID, message: str): # NEW: Send to specific customer
+    async def send_to_customer(self, customer_id: UUID, message: str):
         """
         Sends a message to all active WebSocket connections for a specific customer.
         """
@@ -75,9 +74,8 @@ class ConnectionManager:
                 print(f"Error sending message to customer {customer_id} ({connection.client}): {e}. Marking for disconnection.")
                 disconnected_websockets.append(connection)
         
-        # Clean up disconnected websockets for this customer
         for ws in disconnected_websockets:
-            self.disconnect(ws, "customer", customer_id) # Use the specific disconnect logic
+            self.disconnect(ws, "customer", customer_id)
 
     async def broadcast(self, message: str, client_type: str):
         """
@@ -86,7 +84,7 @@ class ConnectionManager:
         """
         disconnected_users = []
         if client_type in self.active_connections:
-            for user_id, websockets in list(self.active_connections[client_type].items()): # Iterate over a copy
+            for user_id, websockets in list(self.active_connections[client_type].items()):
                 disconnected_websockets_for_user = []
                 for connection in websockets:
                     try:
@@ -95,14 +93,12 @@ class ConnectionManager:
                         print(f"Error broadcasting to {client_type} {user_id} ({connection.client}): {e}. Marking for disconnection.")
                         disconnected_websockets_for_user.append(connection)
                 
-                # Remove disconnected websockets for this user
                 for ws in disconnected_websockets_for_user:
                     self.active_connections[client_type][user_id].remove(ws)
                 
                 if not self.active_connections[client_type][user_id]:
                     disconnected_users.append(user_id)
         
-        # Remove users with no active connections
         for user_id in disconnected_users:
             del self.active_connections[client_type][user_id]
             print(f"All {client_type} WebSockets for {user_id} disconnected after broadcast cleanup.")
@@ -115,10 +111,7 @@ class ConnectionManager:
         or simply removed. For now, we'll keep it but note its limited use.
         """
         print("Warning: broadcast_to_customers called. This should generally be replaced by send_to_customer for specific messages.")
-        # If you truly need to broadcast to ALL customers, uncomment this:
-        # for customer_id in list(self.active_connections["customer"].keys()):
-        #     await self.send_to_customer(customer_id, message)
-        pass # Do nothing for now to prevent accidental broadasting
+        pass
 
     async def broadcast_to_agents(self, message: str):
         """Convenience method to broadcast to all agent connections."""

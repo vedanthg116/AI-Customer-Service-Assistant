@@ -1,85 +1,134 @@
 # server/database.py
-from typing import AsyncGenerator, List, Optional
-from uuid import UUID, uuid4
 from datetime import datetime
-import json # Import json for previous_orders handling
+from uuid import UUID, uuid4 # Keep uuid.UUID for type hints and default generation
+from typing import Optional
+from sqlalchemy import create_engine, Column, String, DateTime, ForeignKey, Text, Float
+from sqlalchemy.orm import sessionmaker, Mapped, mapped_column, relationship
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.types import TypeDecorator, CHAR # NEW: Import TypeDecorator and CHAR
+# Removed: from sqlalchemy.dialects.postgresql import UUID as PG_UUID # No longer needed if using custom type
+# Removed: from sqlalchemy.dialects.sqlite import BLOB, UUID as SQLITE_UUID # No longer needed, this was the problem!
 
-from fastapi import Depends
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 
-from sqlalchemy import String, Column, DateTime, ForeignKey, Text
-from sqlalchemy.dialects.postgresql import UUID as PG_UUID # Keep PG_UUID for UUID type
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from sqlalchemy.orm import sessionmaker, declarative_base, relationship
+# NEW: Custom UUID Type
+class UUIDType(TypeDecorator):
+    """Platform-independent UUID type.
+    Uses PostgreSQL's UUID type, otherwise uses
+    CHAR(32) storing UUID.hex values.
+    """
+    impl = CHAR(36) # Store as a 36-character string (e.g., "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx")
+    cache_ok = True # For SQLAlchemy 2.0+
 
-# Define your database URL (adjust as needed for your environment)
-DATABASE_URL = "sqlite+aiosqlite:///./sql_app.db" # Using SQLite for simplicity
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return value
+        return str(value) # Convert UUID object to string for storage
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return value
+        return UUID(value) # Convert string from DB back to UUID object
+
+# Ensure your database URL is correct. For SQLite, it's a file path.
+DATABASE_URL = "sqlite+aiosqlite:///./sql_app.db"
 
 Base = declarative_base()
 
-# User Model Definition (now essentially a Customer Profile)
-class User(Base): # No longer inheriting from SQLAlchemyBaseUserTableUUID
-    __tablename__ = "users"
-    id: UUID = Column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
-    full_name: str = Column(String(255), nullable=True) # e.g., "John Doe"
-    # Store previous orders as a JSON string
-    previous_orders: Optional[str] = Column(Text, nullable=True) # Store as JSON string: '["ORD123", "ORD456"]'
-    
-    # Relationships
-    conversations = relationship("Conversation", back_populates="user", lazy="selectin")
+# --- Database Models ---
 
-# Conversation Model Definition
+class User(Base):
+    __tablename__ = "users"
+    # Use custom UUIDType
+    id: Mapped[UUID] = mapped_column(UUIDType, primary_key=True, default=uuid4)
+    full_name: Mapped[str] = mapped_column(String, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+    conversations: Mapped[list["Conversation"]] = relationship(back_populates="user")
+
 class Conversation(Base):
     __tablename__ = "conversations"
-    id: UUID = Column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
-    user_id: UUID = Column(PG_UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
-    start_time: datetime = Column(DateTime, default=datetime.now)
-    status: str = Column(String(50), default="open") # e.g., "open", "closed", "pending"
+    # Use custom UUIDType
+    id: Mapped[UUID] = mapped_column(UUIDType, primary_key=True, default=uuid4)
+    user_id: Mapped[UUID] = mapped_column(UUIDType, ForeignKey("users.id"))
+    start_time: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    status: Mapped[str] = mapped_column(String, default="open") # e.g., "open", "closed"
+    assigned_agent_id: Mapped[Optional[UUID]] = mapped_column(UUIDType, nullable=True)
+    assigned_agent_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
-    # NEW: Fields for agent assignment
-    assigned_agent_id: Optional[UUID] = Column(PG_UUID(as_uuid=True), nullable=True)
-    assigned_agent_name: Optional[str] = Column(String(255), nullable=True)
+    user: Mapped["User"] = relationship(back_populates="conversations")
+    messages: Mapped[list["Message"]] = relationship(back_populates="conversation")
+    tickets: Mapped[list["Ticket"]] = relationship(back_populates="conversation") # NEW: Relationship to Tickets
 
-    # Relationships
-    user = relationship("User", back_populates="conversations", lazy="selectin")
-    messages = relationship("Message", back_populates="conversation", lazy="selectin", order_by="Message.timestamp")
-
-# Message Model Definition
 class Message(Base):
     __tablename__ = "messages"
-    id: UUID = Column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
-    conversation_id: UUID = Column(PG_UUID(as_uuid=True), ForeignKey("conversations.id"), nullable=False)
-    sender: str = Column(String(50), nullable=False) # e.g., "customer", "agent", "system"
-    text_content: str = Column(Text, nullable=False)
-    timestamp: datetime = Column(DateTime, default=datetime.now)
-    image_url: Optional[str] = Column(Text, nullable=True) # Store base64 image data or URL
-    ocr_extracted_text: Optional[str] = Column(Text, nullable=True) # Text extracted from image
+    # Use custom UUIDType
+    id: Mapped[UUID] = mapped_column(UUIDType, primary_key=True, default=uuid4)
+    conversation_id: Mapped[UUID] = mapped_column(UUIDType, ForeignKey("conversations.id"))
+    sender: Mapped[str] # "customer" or "agent"
+    text_content: Mapped[str] = mapped_column(Text)
+    timestamp: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    image_url: Mapped[Optional[str]] = mapped_column(String, nullable=True) # For base64 image data or URL
+    ocr_extracted_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
-    # Relationships
-    conversation = relationship("Conversation", back_populates="messages")
+    # AI Analysis Fields
+    predicted_intent: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    intent_confidence: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    sentiment_label: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    sentiment_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    
+    # Store suggestions and detected entities as JSON strings
+    suggestions_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    detected_entities_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
-# Knowledge Base Article Model Definition
+    conversation: Mapped["Conversation"] = relationship(back_populates="messages")
+
+class Ticket(Base): # NEW: Ticket Model
+    __tablename__ = "tickets"
+    # Use custom UUIDType
+    id: Mapped[UUID] = mapped_column(UUIDType, primary_key=True, default=uuid4)
+    conversation_id: Mapped[UUID] = mapped_column(UUIDType, ForeignKey("conversations.id"))
+    raised_by_agent_id: Mapped[UUID] = mapped_column(UUIDType)
+    raised_by_agent_name: Mapped[str] = mapped_column(String)
+    issue_description: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String, default="Open") # e.g., "Open", "Pending", "Closed"
+    priority: Mapped[str] = mapped_column(String, default="Medium") # e.g., "Low", "Medium", "High", "Urgent"
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+    conversation: Mapped["Conversation"] = relationship(back_populates="tickets")
+
+
 class KnowledgeBaseArticle(Base):
     __tablename__ = "knowledge_base_articles"
-    id: UUID = Column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
-    title: str = Column(String(255), nullable=False, unique=True)
-    content: str = Column(Text, nullable=False)
-    tags: Optional[str] = Column(String(255), nullable=True) # Comma-separated tags, e.g., "shipping,returns"
-    last_updated: datetime = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+    # Use custom UUIDType
+    id: Mapped[UUID] = mapped_column(UUIDType, primary_key=True, default=uuid4)
+    title: Mapped[str] = mapped_column(String, index=True)
+    content: Mapped[str] = mapped_column(Text)
+    tags: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    last_updated: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now)
 
 
-# Database Engine and Session Setup
-engine = create_async_engine(DATABASE_URL)
-async_session_maker = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+# --- Database Engine & Session Setup ---
+
+# For asynchronous operations
+async_engine = create_async_engine(DATABASE_URL, echo=False)
+
+# For asynchronous sessions
+AsyncSessionLocal = async_sessionmaker(
+    autocommit=False,
+    autoflush=False,
+    bind=async_engine,
+    class_=AsyncSession,
+    expire_on_commit=False
+)
 
 async def create_db_and_tables():
     """Creates all database tables defined in Base."""
-    async with engine.begin() as conn:
+    async with async_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
-async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
-    """Dependency for getting an async database session."""
-    async with async_session_maker() as session:
+async def get_async_session():
+    """Dependency for getting an asynchronous database session."""
+    async with AsyncSessionLocal() as session:
         yield session
-
-# Removed: get_user_db and seed_initial_data
-# We will handle customer creation on the fly based on name.

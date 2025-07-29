@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 from config.gemini_config import gemini_model
 
 # Import routers
-from api.routers import chat_router, websocket_router
+from api.routers import chat_router, websocket_router, kb_router # NEW: Import kb_router
 # NEW: Import only database components, removed auth imports
 from database import create_db_and_tables, get_async_session
 
@@ -25,8 +25,6 @@ async def lifespan(app: FastAPI):
     await create_db_and_tables()
     print("Database tables ensured.")
 
-    # Removed: seed_initial_data call
-
     yield # The application will run after this point
     print("Application shutdown.")
 
@@ -35,33 +33,30 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="AI Customer Service Assistant Backend",
     description="Main API entry point with Gemini integration, real-time communication, and simplified customer/agent management.",
-    version="0.5.0", # Updated version to reflect major changes
+    version="0.5.0",
     lifespan=lifespan
 )
 
 # --- CORS Middleware Configuration ---
-# This middleware should be added as early as possible to ensure it intercepts all requests.
 origins = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
-    "http://localhost:5173", # Default for Vite development server
+    "http://localhost:5173",
     "http://127.0.0.1:5173",
-    # Add any other origins for your frontend in production
 ]
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["*"],  # Allows all HTTP methods, including those used in WebSocket handshake (GET, OPTIONS)
-    allow_headers=["*"],  # Allows all headers, crucial for WebSocket connection headers like Upgrade, Connection, Sec-WebSocket-Key
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
-
-# Removed: All authentication routers from fastapi-users
 
 # --- Include Custom Application Routers ---
 app.include_router(chat_router.router, tags=["Chat Operations"])
 app.include_router(websocket_router.router, tags=["WebSocket Communication"])
+app.include_router(kb_router.router, tags=["Knowledge Base"]) # NEW: Include KB router
 
 # --- Simple Root Endpoint ---
 @app.get("/")

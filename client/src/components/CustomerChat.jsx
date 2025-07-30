@@ -1,28 +1,66 @@
 // client/src/components/CustomerChat.jsx
-import React, { useState, useEffect, useRef } from 'react';
-import { useAuth } from '../context/AuthContext'; // Still used for API_BASE_URL
-import { v4 as uuidv4 } from 'uuid'; // Import uuidv4 for generating unique IDs
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useAuth } from '../context/AuthContext'; // Correct import for useAuth
+import { v4 as uuidv4 } from 'uuid'; // For generating temporary IDs
 
 const CustomerChat = () => {
+  const { userId, userName, isAuthenticated, isLoadingAuth, setCustomerIdentity, clearCustomerIdentity } = useAuth(); // Use the custom hook and new functions
   const [message, setMessage] = useState('');
   const [chatHistory, setChatHistory] = useState([]);
-  const [selectedImage, setSelectedImage] = useState(null);
-  const [loadingHistory, setLoadingHistory] = useState(true);
+  const [isTyping, setIsTyping] = useState(false);
+  const [imageFile, setImageFile] = useState(null);
+  const [imagePreview, setImagePreview] = useState(null);
+  const [isSending, setIsSending] = useState(false); // To prevent multiple sends
+  const [isUploadingImage, setIsUploadingImage] = useState(false); // For image upload state
 
-  // State for customer identity
-  const [customerId, setCustomerId] = useState(null);
-  const [customerName, setCustomerName] = useState('');
-  const [nameInput, setNameInput] = useState(''); // For the name input field
-  const [showNameInput, setShowNameInput] = useState(true);
-  // State to hold previous customer details for "Continue" option
-  const [previousCustomerDetails, setPreviousCustomerDetails] = useState(null); 
+  // New state for name input
+  const [customerNameInput, setCustomerNameInput] = useState('');
+  const [showNameInputScreen, setShowNameInputScreen] = useState(true);
+  const [isSearchingCustomer, setIsSearchingCustomer] = useState(false);
 
-  const chatBoxRef = useRef(null);
-  const fileInputRef = useRef(null);
+  // New function to search for existing customer by name
+  const handleSearchExistingCustomer = async () => {
+    if (customerNameInput.trim() === '') {
+      alert("Please enter a name to search.");
+      return;
+    }
+
+    setIsSearchingCustomer(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/search-customer/${encodeURIComponent(customerNameInput.trim())}`);
+      if (response.ok) {
+        const data = await response.json();
+        if (data.customer_id) {
+          // Customer found, set their identity and continue
+          setCustomerIdentity(customerNameInput.trim(), data.customer_id);
+          setShowNameInputScreen(false);
+          console.log(`CustomerChat: Found existing customer ${customerNameInput.trim()} with ID ${data.customer_id}`);
+        } else {
+          alert(`No existing customer found with name "${customerNameInput.trim()}". Starting new chat.`);
+          setCustomerIdentity(customerNameInput.trim());
+          setShowNameInputScreen(false);
+        }
+      } else {
+        // Customer not found, start new chat
+        alert(`No existing customer found with name "${customerNameInput.trim()}". Starting new chat.`);
+        setCustomerIdentity(customerNameInput.trim());
+        setShowNameInputScreen(false);
+      }
+    } catch (error) {
+      console.error('CustomerChat: Error searching for customer:', error);
+      alert("Error searching for customer. Starting new chat.");
+      setCustomerIdentity(customerNameInput.trim());
+      setShowNameInputScreen(false);
+    } finally {
+      setIsSearchingCustomer(false);
+    }
+  };
+
+
   const ws = useRef(null);
   const reconnectTimeout = useRef(null);
+  const chatBoxRef = useRef(null); // Ref for auto-scrolling chat
 
-  // Use environment variables for API and WebSocket URLs
   const API_BASE_URL = import.meta.env.VITE_API_URL;
   const WS_BASE_URL = import.meta.env.VITE_WS_URL;
 
@@ -33,137 +71,167 @@ const CustomerChat = () => {
     }
   }, [chatHistory]);
 
-  // Manage customer ID and name from local storage and present options
+  // Effect to manage the name input screen visibility
   useEffect(() => {
-    const storedCustomerId = localStorage.getItem('customer_id');
-    const storedCustomerName = localStorage.getItem('customer_name');
-
-    if (storedCustomerId && storedCustomerName) {
-      // If previous details exist, offer to continue or start new
-      setPreviousCustomerDetails({ id: storedCustomerId, name: storedCustomerName });
-      setShowNameInput(true); // Still show name input, but with options
-      console.log(`CustomerChat: Found previous customer: ${storedCustomerName} (ID: ${storedCustomerId}). Offering options.`);
-    } else {
-      // No previous details, just ask for a new name
-      setShowNameInput(true);
-      setLoadingHistory(false); // No history to load yet
-      console.log("CustomerChat: No customer ID/name found in local storage. Prompting for new name.");
-    }
-  }, []);
-
-  // Function to initialize chat after name is set (either new or continued)
-  const initializeChat = async (id, name) => {
-    setCustomerId(id);
-    setCustomerName(name);
-    setShowNameInput(false);
-    setLoadingHistory(true); // Start loading history
-    console.log(`CustomerChat: Initializing chat for ${name} (ID: ${id}).`);
-  };
-
-  // Fetch chat history once customerId is available
-  useEffect(() => {
-    const fetchChatHistory = async (currentCustomerId) => {
-      if (!currentCustomerId) {
-        console.log("CustomerChat: Customer ID not available for history fetch.");
-        setLoadingHistory(false);
-        return;
+    if (!isLoadingAuth) {
+      // If auth is loaded and user is authenticated, hide the name input screen
+      if (isAuthenticated && userId && userName) {
+        setShowNameInputScreen(false);
+      } else {
+        // If auth is loaded but no user, show the name input screen
+        setShowNameInputScreen(true);
+        // Pre-fill input if a name was previously stored but ID wasn't (edge case)
+        setCustomerNameInput(localStorage.getItem('customer_user_name') || '');
       }
-      console.log("CustomerChat: Fetching history for customer ID:", currentCustomerId);
+    }
+  }, [isLoadingAuth, isAuthenticated, userId, userName]);
+
+
+  // Fetch initial chat history when authenticated
+  useEffect(() => {
+    const fetchChatHistory = async () => {
+      if (!isAuthenticated || !userId || showNameInputScreen) return; // Only fetch if authenticated and name screen is hidden
 
       try {
-        const response = await fetch(`${API_BASE_URL}/chat-history/user/${currentCustomerId}`);
-
+        const response = await fetch(`${API_BASE_URL}/chat-history/user/${userId}`);
         if (response.ok) {
-          const history = await response.json();
-          setChatHistory(history);
-          console.log("CustomerChat: Fetched chat history successfully.");
+          const data = await response.json();
+          setChatHistory(Array.isArray(data) ? data : []);
+          console.log(`CustomerChat: Fetched chat history for user ${userId}:`, data);
         } else {
-          console.error("CustomerChat: Failed to fetch chat history:", response.status, response.statusText);
+          console.error('CustomerChat: Failed to fetch chat history:', response.statusText);
           setChatHistory([]);
         }
       } catch (error) {
-        console.error("CustomerChat: Error fetching chat history:", error);
-        setChatHistory([]);
-      } finally {
-        setLoadingHistory(false);
+          // Check if the error is due to a 404 for chat history (e.g., brand new user with no history yet)
+          // For now, just log and set empty. A 404 is valid for no history.
+          console.error('CustomerChat: Error fetching chat history (possibly none yet):', error);
+          setChatHistory([]);
       }
     };
 
-    if (customerId && !showNameInput) { // Only fetch if customerId is set and name input is hidden
-      fetchChatHistory(customerId);
+    fetchChatHistory();
+  }, [isAuthenticated, userId, API_BASE_URL, showNameInputScreen]); // Add showNameInputScreen to dependencies
+
+
+  // WebSocket connection logic wrapped in useCallback
+  const connectWebSocket = useCallback(() => {
+    // Clear any existing reconnect attempts
+    if (reconnectTimeout.current) {
+      clearTimeout(reconnectTimeout.current);
+      reconnectTimeout.current = null;
     }
-  }, [customerId, API_BASE_URL, showNameInput]);
 
-  // WebSocket connection
-  useEffect(() => {
-    const connectWebSocket = () => {
-      if (reconnectTimeout.current) {
-        clearTimeout(reconnectTimeout.current);
-        reconnectTimeout.current = null;
+    if (!isAuthenticated || !userId || showNameInputScreen) { // Don't connect if not authenticated or name screen is visible
+      console.log("CustomerChat: Not authenticated, User ID not available, or Name Input Screen is visible. Not connecting WebSocket.");
+      if (ws.current) {
+        ws.current.close();
+        ws.current = null;
       }
+      return;
+    }
 
-      if (!customerId) { // Only connect if customerId is available
-        console.log("CustomerChat: Customer ID not available for WebSocket. Not connecting.");
-        if (ws.current) {
-          ws.current.close();
-          ws.current = null;
-        }
-        return;
-      }
+    const currentWsUrl = `${WS_BASE_URL}/ws/customer/${userId}`;
+    if (!ws.current || ws.current.readyState === WebSocket.CLOSED || ws.current.readyState === WebSocket.CLOSING) {
+      console.log('CustomerChat: Attempting to connect Customer WebSocket to:', currentWsUrl);
+      ws.current = new WebSocket(currentWsUrl);
 
-      // Construct WebSocket URL with customerId as a path parameter
-      const currentWsUrl = `${WS_BASE_URL}/ws/customer/${customerId}`; 
-      if (!ws.current || ws.current.readyState === WebSocket.CLOSED || ws.current.readyState === WebSocket.CLOSING) {
-        console.log('CustomerChat: Attempting to connect Customer WebSocket to:', currentWsUrl);
-        ws.current = new WebSocket(currentWsUrl);
+      ws.current.onopen = () => {
+        console.log('CustomerChat: Customer WebSocket connected successfully.');
+        setIsTyping(false); // Reset typing status on connect
+      };
 
-        ws.current.onopen = () => {
-          console.log('CustomerChat: Customer WebSocket connected successfully.');
-        };
+      ws.current.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          console.log('CustomerChat: Received WebSocket data:', data);
 
-        ws.current.onmessage = (event) => {
-          try {
-            const data = JSON.parse(event.data);
-            console.log('CustomerChat: Received WebSocket data:', data); 
-            if (data.type === 'agent_chat_message' || data.type === 'customer_chat_message') {
-              setChatHistory((prevHistory) => {
-                const newHistory = [
-                  ...prevHistory,
-                  {
-                    text: data.text,
-                    sender: data.sender,
-                    timestamp: data.timestamp,
-                    image_url: data.image_url,
-                    ocr_text: data.ocr_text
-                  }
-                ];
-                console.log('CustomerChat: Updating chat history to:', newHistory);
-                return newHistory;
-              });
+          setChatHistory((prev) => {
+            const currentMessages = Array.isArray(prev) ? prev : [];
+            const incomingMessageId = data.message_id; 
+            const incomingTimestamp = data.timestamp;
+
+            // 1. If the message already exists by its final server-assigned ID, ignore it.
+            // This is the primary deduplication for confirmed messages.
+            if (incomingMessageId && currentMessages.some(msg => msg.id === incomingMessageId)) {
+              console.log(`CustomerChat: Ignoring duplicate message with server ID: ${incomingMessageId}.`);
+              return currentMessages;
             }
-          } catch (error) {
-            console.error("CustomerChat: Error parsing WebSocket message:", error, "Raw data:", event.data);
-          }
-        };
 
-        ws.current.onclose = (event) => {
-          console.log('CustomerChat: Customer WebSocket disconnected.', event.code, event.reason);
-          if (event.code !== 1000 && !reconnectTimeout.current) {
-            console.log('CustomerChat: Attempting to reconnect WebSocket in 3 seconds...');
-            reconnectTimeout.current = setTimeout(connectWebSocket, 3000);
-          }
-        };
+            if (data.type === 'agent_chat_message') {
+              setIsTyping(false); 
+              return [
+                ...currentMessages,
+                {
+                  id: incomingMessageId,
+                  text: data.text,
+                  sender: data.sender,
+                  timestamp: incomingTimestamp,
+                },
+              ];
+            } 
+            
+            else if (data.type === 'customer_chat_message') {
+                // 2. For customer messages, first try to find and update the *optimistic* message.
+                // An optimistic message is marked with `id: null` and has its `tempId` (though `tempId` is not used for lookup here).
+                const optimisticMessageIndex = currentMessages.findIndex(msg => 
+                    msg.sender === 'customer' && 
+                    msg.text === data.text && // Match by text (heuristic)
+                    msg.id === null // Crucial: This identifies the optimistic message awaiting server ID
+                );
 
-        ws.current.onerror = (error) => {
-          console.error('CustomerChat: Customer WebSocket error:', error);
-        };
-      }
-    };
+                if (optimisticMessageIndex > -1) {
+                    // Found the optimistic message, update it with the server's details
+                    const updatedMessages = [...currentMessages];
+                    updatedMessages[optimisticMessageIndex] = { 
+                        ...updatedMessages[optimisticMessageIndex], 
+                        id: incomingMessageId, // Assign the server's ID
+                        timestamp: incomingTimestamp, // Use server's timestamp
+                        image_url: data.image_url,
+                        ocr_text: data.ocr_text
+                    };
+                    return updatedMessages;
+                } else {
+                    // If no matching optimistic message (id === null) was found, 
+                    // this is either a message from another source (e.g., recorded call)
+                    // or an optimistic message that somehow wasn't marked correctly,
+                    // or a re-broadcast that needs to be added as new.
+                    // (The top-level duplicate check for `incomingMessageId` handles strict duplicates).
+                    return [...currentMessages, {
+                        id: incomingMessageId,
+                        text: data.text,
+                        sender: data.sender,
+                        timestamp: incomingTimestamp,
+                        image_url: data.image_url,
+                        ocr_text: data.ocr_text
+                    }];
+                }
+            }
+            return currentMessages; // Fallback for unknown message types
+          });
+        } catch (error) {
+          console.error("CustomerChat: Error parsing WebSocket message:", error, "Raw data:", event.data);
+        }
+      };
 
-    if (customerId && !showNameInput) { // Connect only if customerId is set and name input is hidden
-      connectWebSocket();
+      ws.current.onclose = (event) => {
+        console.log('CustomerChat: Customer WebSocket disconnected.', event.code, event.reason);
+        if (event.code !== 1000 && !reconnectTimeout.current) { // 1000 is normal closure
+          console.log('CustomerChat: Attempting to reconnect WebSocket in 3 seconds...');
+          reconnectTimeout.current = setTimeout(connectWebSocket, 3000);
+        }
+      };
+
+      ws.current.onerror = (error) => {
+        console.error('CustomerChat: Customer WebSocket error:', error);
+      };
     }
+  }, [isAuthenticated, userId, WS_BASE_URL, showNameInputScreen]); // Added showNameInputScreen to dependencies
 
+
+  // Effect to manage WebSocket connection lifecycle
+  useEffect(() => {
+    connectWebSocket();
     return () => {
       if (ws.current && ws.current.readyState === WebSocket.OPEN) {
         ws.current.close();
@@ -174,154 +242,189 @@ const CustomerChat = () => {
       ws.current = null;
       reconnectTimeout.current = null;
     };
-  }, [customerId, WS_BASE_URL, showNameInput]); // Dependencies updated
+  }, [connectWebSocket]); // Re-run effect only if connectWebSocket changes
 
-  const handleImageChange = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      setSelectedImage(file);
-    } else {
-      setSelectedImage(null);
-    }
-  };
-
-  const handleSend = async () => {
-    if (message.trim() === '' && !selectedImage) {
-      alert("Please enter a message or select an image to send.");
+  // Handle customer name submission
+  const handleCustomerNameSubmit = () => {
+    if (customerNameInput.trim() === '') {
+      alert("Please enter your name to start the chat.");
       return;
     }
-    if (!customerId) {
-        alert("Customer ID not set. Please refresh and enter your name.");
-        return;
+    setCustomerIdentity(customerNameInput.trim()); // Use the AuthContext function
+    setShowNameInputScreen(false); // Hide the name input screen
+  };
+
+  // Function to handle starting a completely new chat
+  const handleStartNewChat = () => {
+    clearCustomerIdentity(); // Clear identity using AuthContext function
+    setCustomerNameInput(''); // Clear input field
+    setChatHistory([]); // Clear chat history
+    setShowNameInputScreen(true); // Show the name input screen again
+    // No need for window.location.reload() as state update will re-render
+  };
+
+
+  const handleSendMessage = async () => {
+    if (isSending || (!message.trim() && !imageFile)) {
+      return;
     }
 
-    try {
-      let response;
-      if (selectedImage) {
-        const formData = new FormData();
-        formData.append('file', selectedImage);
-        formData.append('customer_id', customerId);
-        formData.append('customer_name', customerName);
-        if (message.trim() !== '') {
-          formData.append('text', message.trim());
-        }
-        formData.append('chat_history_json', JSON.stringify(chatHistory));
+    setIsSending(true);
+    setIsTyping(true); // Indicate that a message is being processed
 
-        response = await fetch(`${API_BASE_URL}/analyze-image-message`, {
+    const currentTimestamp = new Date().toISOString();
+    const tempClientSideId = uuidv4(); // Generate a temporary client-side ID for optimistic display
+
+    // Optimistically add customer message to chat history
+    const newCustomerMessage = {
+      tempClientSideId: tempClientSideId, // Store this for potential future advanced deduplication
+      id: null, // Critical: Set initial ID to null, it will be updated by server's message_id
+      text: message.trim() || (imageFile ? "Image shared." : ""),
+      sender: 'customer',
+      timestamp: currentTimestamp, // Use client's current time for optimistic display
+      image_url: imagePreview, 
+      ocr_text: null 
+    };
+    setChatHistory((prev) => [...(Array.isArray(prev) ? prev : []), newCustomerMessage]);
+    setMessage(''); // Clear input field
+    setImagePreview(null); // Clear image preview
+    const fileToSend = imageFile; // Store file before clearing state
+    setImageFile(null); // Clear image file state
+
+    try {
+      if (fileToSend) {
+        setIsUploadingImage(true);
+        const formData = new FormData();
+        formData.append('file', fileToSend);
+        formData.append('customer_id', userId);
+        formData.append('customer_name', userName);
+        formData.append('text', newCustomerMessage.text);
+        formData.append('chat_history_json', JSON.stringify(chatHistory)); // Send current history for context
+
+        const response = await fetch(`${API_BASE_URL}/analyze-image-message`, {
           method: 'POST',
           body: formData,
         });
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          console.error('CustomerChat: Failed to send image message:', errorData);
+          alert(`Failed to send image: ${errorData.detail || response.statusText}`);
+          // TODO: Implement logic to revert optimistic update or mark as failed
+        }
       } else {
-        response = await fetch(`${API_BASE_URL}/analyze-message`, {
+        const response = await fetch(`${API_BASE_URL}/analyze-message`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ 
-            customer_id: customerId,
-            customer_name: customerName,
-            text: message, 
-            chat_history: chatHistory 
+          body: JSON.stringify({
+            customer_id: userId,
+            customer_name: userName,
+            text: newCustomerMessage.text,
+            chat_history: chatHistory, // Send current history for context
           }),
         });
-      }
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        if (!response.ok) {
+          const errorData = await response.json();
+          console.error('CustomerChat: Failed to send text message:', errorData);
+          alert(`Failed to send message: ${errorData.detail || response.statusText}`);
+          // TODO: Implement logic to revert optimistic update or mark as failed
+        }
       }
-      const data = await response.json();
-      console.log('CustomerChat: Message sent and analyzed by backend (HTTP response data):', data);
     } catch (error) {
-      console.error('CustomerChat: Error sending message to backend:', error);
-      alert(`Error sending message: ${error.message}. Please try again.`);
-    }
-    
-    setMessage('');
-    setSelectedImage(null);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
-  };
-
-  const handleKeyPress = (e) => {
-    if (e.key === 'Enter' && !selectedImage) {
-      handleSend();
+      console.error('CustomerChat: Network error sending message:', error);
+      alert("Network error or server unreachable.");
+      // TODO: Implement logic to revert optimistic update or mark as failed
+    } finally {
+      setIsSending(false);
+      setIsUploadingImage(false);
+      // setIsTyping(false); // Agent will handle setting this to false when they reply
     }
   };
 
-  const triggerFileInput = () => {
-    fileInputRef.current.click();
-  };
-
-  // Handle name submission for new chat
-  const handleStartNewChatSubmit = () => {
-    if (nameInput.trim() === '') {
-      alert("Please enter your name to start a new chat.");
-      return;
-    }
-    const newCustomerId = uuidv4(); // Generate a new UUID
-    localStorage.setItem('customer_id', newCustomerId);
-    localStorage.setItem('customer_name', nameInput.trim());
-    initializeChat(newCustomerId, nameInput.trim());
-  };
-
-  // Handle continuing previous chat
-  const handleContinuePreviousChat = () => {
-    if (previousCustomerDetails) {
-      localStorage.setItem('customer_id', previousCustomerDetails.id); // Ensure it's explicitly set
-      localStorage.setItem('customer_name', previousCustomerDetails.name); // Ensure it's explicitly set
-      initializeChat(previousCustomerDetails.id, previousCustomerDetails.name);
+  const handleImageChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      setImageFile(file);
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setImagePreview(reader.result);
+      };
+      reader.readAsDataURL(file);
+    } else {
+      setImageFile(null);
+      setImagePreview(null);
     }
   };
 
-  // Render name input form with options
-  if (showNameInput) {
+  // Display loading state for auth
+  if (isLoadingAuth) {
+    return <div className="panel customer-panel" style={{ textAlign: 'center', padding: '50px' }}>Loading customer identity...</div>;
+  }
+
+  // Render name input form if needed
+  if (showNameInputScreen) {
     return (
       <div className="panel customer-panel" style={{ textAlign: 'center', padding: '50px' }}>
-        <h2>Welcome to Customer Support!</h2>
-        {previousCustomerDetails ? (
-          <>
-            <p>You were previously chatting as **{previousCustomerDetails.name}**.</p>
-            <button 
-              onClick={handleContinuePreviousChat} 
-              style={{ padding: '10px 20px', fontSize: '1em', marginRight: '10px' }}
-            >
-              Continue as {previousCustomerDetails.name}
-            </button>
-            <p style={{ marginTop: '20px', marginBottom: '10px' }}>Or start a new chat:</p>
-          </>
-        ) : (
-          <p>Please enter your name to begin:</p>
-        )}
+        <h2>Customer Chat</h2>
+        <p>Enter your name to continue an existing chat or start a new one:</p>
         <input
           type="text"
-          value={nameInput}
-          onChange={(e) => setNameInput(e.target.value)}
-          placeholder="Your Name (for new chat)"
+          value={customerNameInput}
+          onChange={(e) => setCustomerNameInput(e.target.value)}
+          placeholder="Your Name"
           style={{ padding: '10px', fontSize: '1em', width: '80%', maxWidth: '300px', marginBottom: '15px' }}
-          onKeyPress={(e) => e.key === 'Enter' && handleStartNewChatSubmit()}
+          onKeyPress={(e) => e.key === 'Enter' && handleSearchExistingCustomer()}
         />
-        <button onClick={handleStartNewChatSubmit} style={{ padding: '10px 20px', fontSize: '1em' }}>Start New Chat</button>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', alignItems: 'center' }}>
+          <button 
+            onClick={handleSearchExistingCustomer} 
+            className="home-button" 
+            style={{ padding: '10px 20px', fontSize: '1em', backgroundColor: '#28a745' }}
+            disabled={isSearchingCustomer}
+          >
+            {isSearchingCustomer ? 'Searching...' : 'Continue Existing Chat'}
+          </button>
+          <button 
+            onClick={handleCustomerNameSubmit} 
+            className="home-button" 
+            style={{ padding: '10px 20px', fontSize: '1em', backgroundColor: '#007bff' }}
+          >
+            Start New Chat
+          </button>
+          {userName && ( // Show "Continue as" only if a name was previously stored
+            <button 
+              onClick={() => { setCustomerIdentity(userName); setShowNameInputScreen(false); }} 
+              className="home-button" 
+              style={{ marginTop: '10px', padding: '10px 20px', fontSize: '1em', backgroundColor: '#6c757d' }}
+            >
+              Continue as {userName}
+            </button>
+          )}
+        </div>
       </div>
     );
   }
 
-  if (loadingHistory) {
-    return <div style={{ textAlign: 'center', padding: '50px' }}>Loading chat history...</div>;
-  }
-
+  // Main Customer Chat UI
   return (
     <div className="panel customer-panel">
-      <h2>Customer Chat ({customerName})</h2>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+        <h2>Customer Chat ({userName})</h2>
+        <button onClick={handleStartNewChat} className="home-button logout-button">Start New Chat</button> {/* Updated onClick */}
+      </div>
       <div className="chat-box" ref={chatBoxRef}>
         <div className="chat-messages">
           {chatHistory.length === 0 ? (
-            <p className="no-messages-placeholder">Start a new conversation!</p>
+            <p className="no-messages-placeholder">Start a conversation!</p>
           ) : (
             chatHistory.map((msg, index) => (
-              <div key={index} className={`chat-message ${msg.sender}`}>
+              // Use msg.id as key if available, otherwise fallback to index. tempClientSideId could also be used for optimistic.
+              <div key={msg.id || msg.tempClientSideId || index} className={`chat-message ${msg.sender}`}>
                 {msg.image_url && (
-                  <img src={msg.image_url} alt="Customer Upload" style={{ maxWidth: '100%', borderRadius: '8px', marginBottom: '8px' }} />
+                  <img src={msg.image_url} alt="User Upload" style={{ maxWidth: '100%', borderRadius: '8px', marginBottom: '8px' }} />
                 )}
                 <p>{msg.text}</p>
                 {msg.ocr_text && (
@@ -331,29 +434,48 @@ const CustomerChat = () => {
               </div>
             ))
           )}
+          {isTyping && (
+            <div className="chat-message agent">
+              <p>Agent is typing...</p>
+            </div>
+          )}
         </div>
       </div>
       <div className="message-input-area">
+        {imagePreview && (
+          <div style={{ marginBottom: '10px', position: 'relative' }}>
+            <img src={imagePreview} alt="Preview" style={{ maxWidth: '100px', maxHeight: '100px', borderRadius: '8px' }} />
+            <button
+              onClick={() => { setImagePreview(null); setImageFile(null); }}
+              style={{ position: 'absolute', top: '-5px', right: '-5px', background: 'red', color: 'white', border: 'none', borderRadius: '50%', width: '20px', height: '20px', cursor: 'pointer', fontSize: '0.8em', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            >
+              X
+            </button>
+          </div>
+        )}
         <input
           type="text"
           value={message}
           onChange={(e) => setMessage(e.target.value)}
-          onKeyPress={handleKeyPress}
+          onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
           placeholder="Type your message..."
+          disabled={isSending || isUploadingImage}
         />
         <input
           type="file"
           accept="image/*"
-          ref={fileInputRef}
           onChange={handleImageChange}
           style={{ display: 'none' }}
+          id="image-upload-input"
+          disabled={isSending || isUploadingImage}
         />
-        <button onClick={triggerFileInput} className="attach-button" title="Attach Screenshot">📎</button>
-        <button onClick={handleSend} disabled={message.trim() === '' && !selectedImage}>Send</button>
+        <label htmlFor="image-upload-input" className="upload-button" style={{ cursor: 'pointer', padding: '10px', borderRadius: '5px', background: '#007bff', color: 'white', whiteSpace: 'nowrap' }}>
+          {isUploadingImage ? 'Uploading...' : 'Upload Image'}
+        </label>
+        <button onClick={handleSendMessage} disabled={isSending || isUploadingImage || (!message.trim() && !imageFile)}>
+          {isSending ? 'Sending...' : 'Send'}
+        </button>
       </div>
-      {selectedImage && (
-        <p style={{ fontSize: '0.8em', color: '#666', marginTop: '5px' }}>Selected: {selectedImage.name}</p>
-      )}
     </div>
   );
 };

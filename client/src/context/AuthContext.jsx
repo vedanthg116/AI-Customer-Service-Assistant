@@ -1,44 +1,77 @@
 // client/src/context/AuthContext.jsx
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { v4 as uuidv4 } from 'uuid';
 
+// Create the Auth Context
 const AuthContext = createContext(null);
 
+// Create a custom hook to use the Auth Context
+export const useAuth = () => {
+  return useContext(AuthContext);
+};
+
+// Auth Provider Component
 export const AuthProvider = ({ children }) => {
-  // We no longer manage user authentication state (token, user, isAuthenticated)
-  // directly in this context for the simplified demo.
-  // It primarily provides the API_BASE_URL.
-  
-  const API_BASE_URL = "http://127.0.0.1:8000"; // Your backend URL
+  const [userId, setUserId] = useState(null);
+  const [userName, setUserName] = useState(null);
+  const [isAuthenticated, setIsAuthenticated] = useState(false); // Simple authentication state
+  const [isLoadingAuth, setIsLoadingAuth] = useState(true); // New state to indicate auth loading
 
-  // For the simplified model, user data (like ID and name) will be managed
-  // directly within CustomerChat.jsx and AgentDashboard.jsx using local storage.
-  // The 'user' object here will just hold a placeholder or be empty.
-  const [user, setUser] = useState(null); // Placeholder for user data if needed for display
-  const [isAuthenticated, setIsAuthenticated] = useState(false); // Will always be false or managed locally
+  useEffect(() => {
+    // Attempt to load user from localStorage
+    let storedUserId = localStorage.getItem('customer_user_id');
+    let storedUserName = localStorage.getItem('customer_user_name');
 
-  // The useEffect for checking token/user on load is no longer relevant
-  // as we're removing explicit auth.
+    if (storedUserId && storedUserName) {
+      setUserId(storedUserId);
+      setUserName(storedUserName);
+      setIsAuthenticated(true);
+      console.log(`AuthContext: Loaded existing customer: ${storedUserName} (ID: ${storedUserId})`);
+    } else {
+      console.log("AuthContext: No customer ID/name found in local storage. Awaiting user input.");
+      // Do NOT auto-generate here. Wait for user input.
+    }
+    setIsLoadingAuth(false); // Auth loading is complete
+  }, []);
 
-  // The login, register, logout functions are also removed.
+  // New function to set customer identity from an external component
+  const setCustomerIdentity = useCallback((name, existingUserId = null) => {
+    const newUserId = existingUserId || uuidv4();
+    const newUserName = name.trim();
+    
+    localStorage.setItem('customer_user_id', newUserId);
+    localStorage.setItem('customer_user_name', newUserName);
+    
+    setUserId(newUserId);
+    setUserName(newUserName);
+    setIsAuthenticated(true);
+    console.log(`AuthContext: Set customer: ${newUserName} (ID: ${newUserId})${existingUserId ? ' - existing customer' : ' - new customer'}`);
+  }, []);
 
-  const contextValue = {
-    API_BASE_URL,
-    user, // This will mostly be null or a placeholder for this simplified demo
-    isAuthenticated, // This will mostly be false for this simplified demo
-    // Removed: login, register, logout functions
+  // New function to clear customer identity
+  const clearCustomerIdentity = useCallback(() => {
+    localStorage.removeItem('customer_user_id');
+    localStorage.removeItem('customer_user_name');
+    setUserId(null);
+    setUserName(null);
+    setIsAuthenticated(false);
+    console.log("AuthContext: Cleared customer identity.");
+  }, []);
+
+
+  const value = {
+    userId,
+    userName,
+    isAuthenticated,
+    isLoadingAuth, // Provide loading state
+    setCustomerIdentity, // Provide function to set identity
+    clearCustomerIdentity // Provide function to clear identity
   };
 
   return (
-    <AuthContext.Provider value={contextValue}>
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   );
 };
 
-export const useAuth = () => {
-  const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  return context;
-};

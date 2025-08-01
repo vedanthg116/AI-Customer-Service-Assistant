@@ -1,5 +1,4 @@
-AI Customer Service Assistant:
-
+# AI Customer Service Assistant
 
 This project is a real-time AI-powered customer service chat application with a dedicated agent dashboard for managing customer interactions. It demonstrates how to integrate large language models (like Google Gemini) for automated responses and sentiment analysis, alongside human agent intervention for complex queries.
 
@@ -8,7 +7,7 @@ Simplified Customer Onboarding: Customers can start a chat simply by providing a
 
 Real-time Chat: Instant messaging between customers and AI/agents using WebSockets.
 
-AI-Powered Analysis (Google Gemini - using this for will use faster llm api later on):
+AI-Powered Analysis (Google Gemini):
 
 Intent Prediction: Automatically identifies the customer's intent (e.g., "order status", "returns").
 
@@ -88,7 +87,8 @@ source venv/bin/activate # On Windows: .\venv\Scripts\activate
 
 b. Install Python Dependencies
 
-
+pip install -r requirements.txt
+# If requirements.txt is missing, you'll need to create it or install manually:
 # pip install fastapi uvicorn sqlalchemy aiosqlite python-dotenv google-generativeai easyocr python-multipart
 
 c. Configure Environment Variables
@@ -176,3 +176,17 @@ Delete the sql_app.db file in the server directory.
 rm server/sql_app.db
 
 Restart the backend server.
+
+## 🚧 Deployment Status
+
+**Note: Azure deployment is not yet completed.** This project is currently set up for local development only. The Azure deployment configuration files are present in the repository but the actual deployment process has not been finalized. 
+
+For production deployment, additional configuration and testing will be required for:
+- Azure App Service configuration
+- Environment variable management
+- Database migration from SQLite to Azure SQL Database
+- WebSocket support in Azure
+- SSL certificate configuration
+- Monitoring and logging setup
+
+Please refer to the `AZURE_SETUP.md` file for more details on the planned Azure deployment process.

@@ -1,0 +1,16 @@
+2025-07-31T08:26:46  Fetching changes.
+2025-07-31T08:26:46    Starting  LocalZipHandler
+2025-07-31T08:26:46    Cleaning up temp folders from previous zip deployments and extracting pushed zip file /tmp/zipdeploy/c60f44ef-87ed-4d43-93f4-0dd36ea13563.zip (0.13 MB) to /tmp/zipdeploy/extracted
+2025-07-31T08:26:51  Updating submodules.
+2025-07-31T08:26:52  Preparing deployment for commit id 'bfeb93cb-d'.
+2025-07-31T08:26:53  PreDeployment: context.CleanOutputPath False
+2025-07-31T08:26:53  PreDeployment: context.OutputPath /home/site/wwwroot
+2025-07-31T08:26:54  Running custom deployment command...
+2025-07-31T08:26:54  Not setting execute permissions for bash startup.sh
+2025-07-31T08:26:54  Running deployment command...
+2025-07-31T08:26:54    Command: bash startup.sh
+2025-07-31T08:26:56    /usr/bin/python: No module named uvicorn
+2025-07-31T08:26:56    /usr/bin/python: No module named uvicorn
+/opt/Kudu/Scripts/starter.sh bash startup.sh
+2025-07-31T08:26:56  
+2025-07-31T08:26:58  Deployment Failed. deployer = OneDeploy deploymentPath = OneDeploy

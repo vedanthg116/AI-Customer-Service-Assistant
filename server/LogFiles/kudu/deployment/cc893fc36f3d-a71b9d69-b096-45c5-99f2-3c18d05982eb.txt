@@ -1,0 +1,62 @@
+2025-07-31T08:40:25  Fetching changes.
+2025-07-31T08:40:25    Starting  LocalZipHandler
+2025-07-31T08:40:25    Cleaning up temp folders from previous zip deployments and extracting pushed zip file /tmp/zipdeploy/6a324c47-0a69-46e6-8616-28b3dcb93fe0.zip (0.00 MB) to /tmp/zipdeploy/extracted
+2025-07-31T08:40:28  Updating submodules.
+2025-07-31T08:40:28  Preparing deployment for commit id 'a61f0d53-6'.
+2025-07-31T08:40:29  PreDeployment: context.CleanOutputPath False
+2025-07-31T08:40:29  PreDeployment: context.OutputPath /home/site/wwwroot
+2025-07-31T08:40:29  Running build. Project type: OneDeploy
+2025-07-31T08:40:29  Copying the manifest
+2025-07-31T08:40:29  Running deployment command...
+2025-07-31T08:40:29    Command: /opt/Kudu/Scripts/parallel_rsync.sh /tmp/zipdeploy/extracted /home/site/wwwroot 8 /tmp/ False False  
+2025-07-31T08:40:29    Run rsync from: /tmp/zipdeploy/extracted/ to: /home/site/wwwroot/ in 8 parallel threads
+2025-07-31T08:40:30    Delete options: clean=False, use manifest=False, directory to ignore=
+2025-07-31T08:40:30    Prev manifest = /opt/Kudu/Scripts/firstDeploymentManifest and next /home/site/deployments/a61f0d53-659c-410b-987b-ce46fe5a9950/manifest
+2025-07-31T08:40:30    Cleaning up /tmp//filelist.txt and /tmp//splits
+2025-07-31T08:40:30    Creating a list of all files at /tmp//filelist.txt
+2025-07-31T08:40:30    No directory to exclude.
+2025-07-31T08:40:30    Created /tmp//filelist.txt. Total number of files to be synced = 2.
+2025-07-31T08:40:30    Created batches from the list of files. Processing 1 files in each thread
+2025-07-31T08:40:30    Running rsync for filelist /tmp//splits/split.ab from /tmp/zipdeploy/extracted/ to /home/site/wwwroot/
+2025-07-31T08:40:30    Running rsync for filelist /tmp//splits/split.aa from /tmp/zipdeploy/extracted/ to /home/site/wwwroot/
+2025-07-31T08:40:30    
+2025-07-31T08:40:30    Number of files: 1 (reg: 1)
+2025-07-31T08:40:30    Number of created files: 1 (reg: 1)
+2025-07-31T08:40:30    Number of deleted files: 0
+2025-07-31T08:40:30    Number of regular files transferred: 1
+2025-07-31T08:40:30    Total file size: 180 bytes
+2025-07-31T08:40:30    Total transferred file size: 180 bytes
+2025-07-31T08:40:30    Literal data: 180 bytes
+2025-07-31T08:40:30    Matched data: 0 bytes
+2025-07-31T08:40:30    File list size: 0
+2025-07-31T08:40:30    File list generation time: 0.001 seconds
+2025-07-31T08:40:30    File list transfer time: 0.000 seconds
+2025-07-31T08:40:30    Total bytes sent: 274
+2025-07-31T08:40:30    Total bytes received: 35
+2025-07-31T08:40:30    
+2025-07-31T08:40:30    sent 274 bytes  received 35 bytes  618.00 bytes/sec
+2025-07-31T08:40:30    total size is 180  speedup is 0.58
+2025-07-31T08:40:30    Attempt 1: Rsync for filelist /tmp//splits/split.aa completed with exit code 0
+2025-07-31T08:40:30    
+2025-07-31T08:40:31    Number of files: 1 (reg: 1)
+2025-07-31T08:40:31    Number of created files: 1 (reg: 1)
+2025-07-31T08:40:31    Number of deleted files: 0
+2025-07-31T08:40:31    Number of regular files transferred: 1
+2025-07-31T08:40:31    Total file size: 2.11K bytes
+2025-07-31T08:40:31    Total transferred file size: 2.11K bytes
+2025-07-31T08:40:31    Literal data: 2.11K bytes
+2025-07-31T08:40:31    Matched data: 0 bytes
+2025-07-31T08:40:31    File list size: 0
+2025-07-31T08:40:31    File list generation time: 0.007 seconds
+2025-07-31T08:40:31    File list transfer time: 0.000 seconds
+2025-07-31T08:40:31    Total bytes sent: 835
+2025-07-31T08:40:31    Total bytes received: 35
+2025-07-31T08:40:31    
+2025-07-31T08:40:31    sent 835 bytes  received 35 bytes  1.74K bytes/sec
+2025-07-31T08:40:31    total size is 2.11K  speedup is 2.43
+2025-07-31T08:40:31    Attempt 1: Rsync for filelist /tmp//splits/split.ab completed with exit code 0
+2025-07-31T08:40:31    Completed successfully in 1 seconds
+2025-07-31T08:40:31  Build completed succesfully.
+2025-07-31T08:40:31  Running post deployment command(s)...
+2025-07-31T08:40:31  Triggering container recycle for OneDeploy by adding/updating restartTrigger.txt to the site root path
+2025-07-31T08:40:32  Deployment successful. deployer = OneDeploy deploymentPath = OneDeploy
